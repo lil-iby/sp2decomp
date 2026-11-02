@@ -30,15 +30,24 @@ int LoadCProcs(void *device, GetProcAddressFn getProcAddress) {
     int resolved = 0;
     for (int i = 0; i < kProcCount; ++i) {
         const char *name = ProcName(i);
-        if (name == nullptr) continue;
+        if (name == nullptr) {
+            // No name means no entry: point at UnbackedProc so any call reports rather than
+            // faults on a null pointer.
+            gProcs[i] = &UnbackedProc;
+            continue;
+        }
         // The real call: `uVar1 = (*(code *)param_2)(param_1, "nvn...");`
         void *fn = getProcAddress(device, name);
         // A resolver that returns null for a name means that function is not available on this
         // device. The binary stores whatever it gets; so does the port -- but an unavailable
         // entry points at UnbackedProc rather than at null, so a caller dereferencing it
         // reports instead of crashing.
-        gProcs[i] = (fn != nullptr) ? reinterpret_cast<Proc>(fn) : &UnbackedProc;
-        ++resolved;
+        if (fn != nullptr) {
+            gProcs[i] = reinterpret_cast<Proc>(fn);
+            ++resolved;
+        } else {
+            gProcs[i] = &UnbackedProc;
+        }
     }
     gLoaded = true;
     return resolved;

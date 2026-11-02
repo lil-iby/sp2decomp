@@ -316,7 +316,12 @@ void SetThreadName(ThreadType *thread, const char *name) {
 void GetCurrentStackInfo(std::uintptr_t *outBase, std::uintptr_t *outSize) {
     if (outBase != nullptr) *outBase = 0;
     if (outSize != nullptr) *outSize = 0;
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    ULONG_PTR lowLimit = 0, highLimit = 0;
+    GetCurrentThreadStackLimits(&lowLimit, &highLimit);
+    if (outBase != nullptr) *outBase = static_cast<std::uintptr_t>(lowLimit);
+    if (outSize != nullptr) *outSize = static_cast<std::uintptr_t>(highLimit - lowLimit);
+#else
     pthread_attr_t attr;
     if (pthread_getattr_np(pthread_self(), &attr) == 0) {
         void *addr = nullptr;

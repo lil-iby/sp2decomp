@@ -2,6 +2,7 @@
 #include "sead/lock.hpp"
 
 #include <mutex>
+#include <new>
 #include <shared_mutex>
 
 namespace sead {

@@ -2,11 +2,16 @@
 #include "nn/services.hpp"
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <mutex>
 #include <new>
+
+#if defined(_WIN32)
+#  include <malloc.h>
+#endif
 
 namespace nn::fs {
 
@@ -189,7 +194,11 @@ void StandardAllocator::Free(void *ptr) {
     auto *s = reinterpret_cast<AllocatorState *>(mStorage);
     if (s->magic != kAllocatorMagic || ptr == nullptr) return;
     if (s->buffer != nullptr) return; // bump allocator: nothing to reclaim individually
+#if defined(_WIN32)
+    _aligned_free(ptr);
+#else
     std::free(ptr);
+#endif
 }
 
 } // namespace nn::mem

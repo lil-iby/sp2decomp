@@ -1,6 +1,7 @@
 // nn::util / nn::diag implementation — host stand-ins.
 #include "nn/util.hpp"
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>

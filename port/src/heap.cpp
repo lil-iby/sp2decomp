@@ -16,6 +16,10 @@
 #include <cstring>
 #include <new>
 
+#if defined(_WIN32)
+#  include <malloc.h>
+#endif
+
 namespace sead {
 
 namespace {
