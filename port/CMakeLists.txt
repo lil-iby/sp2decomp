@@ -44,6 +44,7 @@ add_library(nnos STATIC
   src/sys_init.cpp
   src/safe_string.cpp
   src/lp_framework.cpp
+  src/heap_new.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -185,5 +186,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(lp_framework_tests tests/lp_framework_tests.cpp)
   target_link_libraries(lp_framework_tests PRIVATE nnos)
   add_test(NAME lp_framework COMMAND lp_framework_tests)
+
+  # sead operator new/delete[] — _ZnwmPN4sead4HeapEi / _ZnamPN4sead4HeapEi / _ZdaPv.
+  add_executable(heap_new_tests tests/heap_new_tests.cpp)
+  target_link_libraries(heap_new_tests PRIVATE nnos)
+  add_test(NAME heap_new COMMAND heap_new_tests)
 
 endif()

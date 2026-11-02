@@ -72,6 +72,16 @@ void HeapMgr::createRootHeap_() {
     gInstance.mCurrentHeap = root;
 }
 
+Heap *HeapMgr::findContainHeap(const void *ptr) {
+    if (ptr == nullptr) return nullptr;
+    const int n = gInstance.mRootHeapNum;
+    for (int i = 0; i < n; ++i) {
+        Heap *h = gInstance.mRootHeaps[i];
+        if (h && h->isInclude(ptr)) return h;
+    }
+    return nullptr;
+}
+
 void HeapMgr::destroy() {
     for (int i = 0; i < gInstance.mRootHeapNum; ++i) {
         if (gInstance.mRootHeaps[i] != nullptr) {

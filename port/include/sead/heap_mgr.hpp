@@ -84,6 +84,10 @@ public:
     // The arena the root heaps are carved from, exposed for the arena-form test.
     static Arena &defaultArena();
 
+    // Scans all registered root heaps and returns the first one whose isInclude(ptr)
+    // returns true. Used by the global operator delete[] port (_ZdaPv, 0x7100e565b0).
+    static Heap *findContainHeap(const void *ptr);
+
 private:
     Heap *mCurrentHeap = nullptr;
     Heap *mRootHeaps[kMaxRootHeaps] = {};
