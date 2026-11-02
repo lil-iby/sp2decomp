@@ -22,6 +22,7 @@
 
 #include "nn/init.hpp"
 #include "nn/os.hpp"
+#include "sead/safe_string.hpp"
 
 #include <cstdio>
 #include <cstdint>
@@ -80,16 +81,18 @@ void *SysInit::getCpCallbackSeadAssert() {
 }
 
 void SysInit::printFromStartTime(const char *label) {
-    // The real body calls sead::FormatFixedSafeString to format
-    // "[label] from start: X.XXXs" (424 bytes, 8 call targets).
-    // sead::FormatFixedSafeString is not yet ported; the port prints directly.
-    const std::uint64_t now = nn::os::GetSystemTick();
+    // The real body (0x71011f603c, 424 bytes) calls sead::FormatFixedSafeString to
+    // build "[label] from start: X.XXXs", then outputs it. Now that
+    // FormatFixedSafeString is ported we mirror that shape exactly.
+    const std::uint64_t now   = nn::os::GetSystemTick();
     const std::uint64_t start = gStartTick.load(std::memory_order_relaxed);
     const double elapsed = (start != 0)
         ? static_cast<double>(now - start) / static_cast<double>(nn::os::kTickFrequencyHz)
         : 0.0;
-    std::printf("Lp::Sys::SysInit::printFromStartTime: [%s] from start: %.3fs\n",
-                label != nullptr ? label : "(null)", elapsed);
+
+    sead::FormatFixedSafeString<128> msg("[%s] from start: %.3fs",
+                                        label != nullptr ? label : "(null)", elapsed);
+    std::printf("Lp::Sys::SysInit::printFromStartTime: %s\n", msg.cstr());
 }
 
 } // namespace Lp::Sys

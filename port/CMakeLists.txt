@@ -42,6 +42,7 @@ add_library(nnos STATIC
   src/worker_thread_mgr.cpp
   src/root_task.cpp
   src/sys_init.cpp
+  src/safe_string.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -173,5 +174,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(sys_init_tests tests/sys_init_tests.cpp)
   target_link_libraries(sys_init_tests PRIVATE nnos)
   add_test(NAME sys_init COMMAND sys_init_tests)
+
+  # sead::SafeStringBase / BufferedSafeStringBase / FormatFixedSafeString.
+  add_executable(safe_string_tests tests/safe_string_tests.cpp)
+  target_link_libraries(safe_string_tests PRIVATE nnos)
+  add_test(NAME safe_string COMMAND safe_string_tests)
 
 endif()

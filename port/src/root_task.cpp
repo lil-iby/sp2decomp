@@ -9,7 +9,9 @@
 // The real binary uses nn::os::CreateThread directly; here WorkerThreadMgr
 // already wraps std::thread, so RootTask sits cleanly on top of it.
 #include "lp/root_task.hpp"
+#include "lp/sys_init.hpp"
 #include "lp/utl.hpp"
+#include "sead/safe_string.hpp"
 
 #include <cstdio>
 
@@ -49,10 +51,12 @@ void RootTask::waitDoneParallelInitThread() {
 
 void RootTask::parallelInitThreadFunc(void *arg) {
     // arg == owning RootTask*.
-    // The real body dispatches subsystem initialization tasks via blr <indirect>.
-    // Those subsystems are not yet ported; the placeholder keeps the test harness passing.
+    // The real body formats a status string via sead::FormatFixedSafeString then logs it
+    // via SysInit::printFromStartTime (0x71011f603c). The subsystem dispatch (blr <indirect>)
+    // is not yet ported; this calls the two now-ported primitives in the observed order.
     (void)arg;
-    std::printf("Lp::Sys::RootTask::parallelInitThreadFunc: parallel init placeholder\n");
+    sead::FormatFixedSafeString<64> msg("parallelInitThread start (subsystem dispatch stub)");
+    SysInit::printFromStartTime(msg.cstr());
 }
 
 } // namespace Lp::Sys
