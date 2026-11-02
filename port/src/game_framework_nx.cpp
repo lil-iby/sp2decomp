@@ -1,7 +1,10 @@
-// sead::GameFrameworkNx / PerformanceMgrNx — the boot root's step 5.
+// sead::GameFrameworkNx / PerformanceMgrNx — the boot root's steps 5 and 8.
 #include "sead/game_framework_nx.hpp"
 
 #include "sead/game_framework.hpp"
+#include "nn/vi.hpp"
+#include "nvn/nvn.hpp"
+#include "nvn/nvn_bridge.hpp"
 
 namespace sead {
 
@@ -27,6 +30,37 @@ void GameFrameworkNx::initialize(const InitializeArg &arg) {
     GameFramework::initialize(arg);
     //   PerformanceMgrNx::initialize();
     PerformanceMgrNx::initialize();
+}
+
+void GameFrameworkNx::initializeGraphicsSystem() {
+    // Decompiled body (0x7100e6738c): six nn::vi calls that set up the display and
+    // layer, then nvn::LoadCProcs to fill the 453-entry NVN proc table.
+    // Order is the exact sequence from the decompiled body (and from vi_tests.cpp,
+    // which replays it as a contract test).
+    nn::vi::Initialize();
+
+    nn::vi::Display *display = nullptr;
+    if (nn::vi::OpenDefaultDisplay(&display) != 0 || display == nullptr) return;
+
+    nn::vi::Layer *layer = nullptr;
+    if (nn::vi::CreateLayer(&layer, display) != 0 || layer == nullptr) return;
+
+    nn::vi::SetLayerScalingMode(layer, nn::vi::ScalingMode::PreserveAspectRatio);
+
+    nn::os::SystemEventType vsync{};
+    nn::vi::GetDisplayVsyncEvent(&vsync, display);
+
+    nn::vi::NativeWindowHandle window = nullptr;
+    nn::vi::GetNativeWindow(&window, layer);
+
+    // Fill the NVN proc table with unbacked stubs. The real resolver (0x7100ddd6e4) uses
+    // the driver's getProcAddress; we substitute one that returns the unbackedCallCount
+    // function pointer so every slot is non-null and reports being invoked without
+    // crashing. A real Vulkan implementation will replace these slots.
+    nvn::LoadCProcs(nullptr, [](void *, const char *) -> void * {
+        return reinterpret_cast<void *>(&nvn::unbackedCallCount);
+    });
+    nvn::bridge::Initialize();
 }
 
 } // namespace sead

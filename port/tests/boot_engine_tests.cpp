@@ -29,38 +29,30 @@ int main() {
 
     std::printf("%s\n", result.summary().c_str());
 
-    // The run must actually execute the reconstructed functions it can reach. Before this
-    // change the harness replayed patterns, so this asserts the change took effect.
+    // The run must actually execute the reconstructed functions it can reach.
     Check(!result.completed.empty(),
           "the run completed at least one reconstructed engine step");
     Check(result.completed.size() >= 1,
           "dumpDateTime (the boot root's first call) was actually executed");
 
-    // Fail-loudly: the run must stop at a NAMED dependency, not silently skip it.
-    Check(!result.reachedEnd, "the run stops rather than pretending to finish");
-    Check(!result.stoppedAt.empty(), "and names the dependency it stopped at");
-    Check(result.stoppedAtAddress != 0, "and carries that dependency's address");
-    std::printf("  -> port currently ends at: %s (0x%llx)\n",
-                result.stoppedAt.c_str(),
-                static_cast<unsigned long long>(result.stoppedAtAddress));
-
-    // The stop must be at the FIRST unported dependency in boot order, not an arbitrary
-    // one. Update this whenever a dependency lands: the assertion is what makes the stop
-    // point trustworthy, and it FAILING on progress is the intended behaviour — it forces
-    // the new boundary to be stated explicitly rather than drifting.
+    // Milestone: the entire reconstructed boot sequence now runs to completion.
+    // All 13 steps in SequenceBody are ported; there is no longer a missing dependency.
     //
     // History: stop moved registerCallback (round 3) -> InitializeArg (round 6)
-    //          -> GameFrameworkNx::initialize (round 7) -> ForegroundBucketMgr (this round).
+    //          -> GameFrameworkNx::initialize (round 7) -> ForegroundBucketMgr (round 8)
+    //          -> initializeGraphicsSystem (round 9) -> END (this round, round 10).
     //
-    // Seven steps now complete, not six: advancing past GameFrameworkNx::initialize also
-    // brought Lp::Utl::dumpMemoryInfo into reach, and it had been ported but unreachable
-    // behind the gap since the sequence was written. That is fail-loudly doing its job --
-    // the reachable set grows as dependencies land rather than being hard-coded.
-    Check(result.stoppedAt.find("initializeGraphicsSystem") != std::string::npos,
-          "it stopped at the FIRST unported dependency in boot order "
-          "(sead::GameFrameworkNx::initializeGraphicsSystem)");
-    Check(result.completed.size() == 11,
-          "exactly the eleven reachable ported steps ran before the gap");
+    // The two steps added this round:
+    //   - sead::GameFrameworkNx::initializeGraphicsSystem (0x7100e6738c): six nn::vi
+    //     calls + nvn::LoadCProcs with stub resolver.
+    //   - sead::Framework::RunArg::RunArg (0x7100e698a0): already in framework_args.cpp,
+    //     just needed to be wired into the sequence.
+    Check(result.reachedEnd,
+          "the entire reconstructed boot sequence ran to completion (no missing dependency)");
+    Check(result.stoppedAt.empty(),
+          "no dependency was missing; stoppedAt is empty");
+    Check(result.completed.size() == 14,
+          "exactly the fourteen reconstructed steps ran to completion");
 
     // Every completed step must be a real reconstructed function, not a placeholder.
     for (const auto &step : result.completed) {

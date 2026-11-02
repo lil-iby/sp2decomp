@@ -153,14 +153,21 @@ void SequenceBody(Runner &r) {
         static sead::Framework sFramework;
         (void)sFramework;
     });
-    r.missing("sead::GameFrameworkNx::initializeGraphicsSystem", kInitializeGraphicsSystem);
+    // Ported: 0x7100e6738c, ~400 bytes. Six nn::vi calls + nvn::LoadCProcs.
+    r.step("sead::GameFrameworkNx::initializeGraphicsSystem", [] {
+        sead::GameFrameworkNx::initializeGraphicsSystem();
+    });
     // Ported: 0x7100e6b7bc, 308 bytes. Reads the heap layer's root-heap count for its flags.
     r.step("sead::TaskBase::MgrTaskArg::MgrTaskArg", [] {
         sead::TaskClassID id;
         sead::MgrTaskArg arg(id);
         (void)arg;
     });
-    r.missing("sead::Framework::RunArg::RunArg", kRunArgCtor);
+    // Ported: 0x7100e698a0, 20 bytes. Stores 0xffffffff00000000 verbatim (see framework_args.cpp).
+    r.step("sead::Framework::RunArg::RunArg", [] {
+        static sead::Framework::RunArg sRunArg;
+        (void)sRunArg;
+    });
 }
 
 } // namespace

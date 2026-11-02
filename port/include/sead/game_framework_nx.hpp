@@ -38,6 +38,12 @@ class GameFrameworkNx : public GameFramework {
 public:
     // 0x7100e6724c, 20 bytes.
     static void initialize(const InitializeArg &arg);
+
+    // 0x7100e6738c, ~400 bytes.
+    // Calls the six nn::vi display-setup functions then nvn::LoadCProcs to fill the NVN
+    // proc table with stub trampolines. The exact call sequence is from the decompiled body
+    // and is also tested independently in tests/vi_tests.cpp.
+    static void initializeGraphicsSystem();
 };
 
 } // namespace sead
