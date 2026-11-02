@@ -16,6 +16,7 @@ add_library(nnos STATIC
   src/vi.cpp
   src/nvn.cpp
   src/nvn_names.cpp
+  src/nvn_bridge.cpp
   src/task_base.cpp
   src/graphics_allocator.cpp
   src/init.cpp
@@ -32,6 +33,12 @@ add_library(nnos STATIC
   src/game_framework_nx.cpp
   src/lock.cpp
   src/heap_group.cpp
+  # Platform abstraction stubs added for clean-architecture port
+  src/hid.cpp
+  src/audio.cpp
+  src/nifm.cpp
+  src/account.cpp
+  src/oe.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
