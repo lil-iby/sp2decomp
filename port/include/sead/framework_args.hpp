@@ -81,6 +81,23 @@ public:
     // The original reaches it through PTR_sInstance_7102f9d280.
     static Heap *threadMgrHeap();
 
+    // 0x7100e69908 (estimated). The main render loop. Entered by SysInit::Init after
+    // completing the 14-step framework setup. In the binary this blocks until the game exits;
+    // in the port it exits when requestStop() is called or the frame limit is reached.
+    //
+    // Minimal implementation:  BeginFrame → EndFrame per frame, Win32 message pump on
+    // Windows. Task manager dispatch (calc_, draw_) will be wired in once WorkerThreadMgr
+    // is ported.
+    void run(const RunArg &arg);
+
+    // Request a clean exit from run(). Thread-safe.
+    static void requestStop();
+
+    // Set a hard frame limit. run() exits after this many frames.
+    // -1 (default) means "run until requestStop() or window close".
+    // Not in the original binary; present so automated tests can run a bounded loop.
+    static void setFrameLimit(int limit);
+
     // --- the modelled layout, at the offsets the constructor writes ---------------------
     // Not part of the original's public surface; present so the constructor's stores land in
     // the right places and the offsets can be asserted.

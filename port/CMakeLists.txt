@@ -151,4 +151,9 @@ if(SP2PORT_BUILD_TESTS)
   target_link_libraries(graphics_allocator_tests PRIVATE nnos)
   add_test(NAME graphics_allocator_contract COMMAND graphics_allocator_tests)
 
+  # sead::Framework::run -- the main game loop (step 15: bounded loop + requestStop).
+  add_executable(run_loop_tests tests/run_loop_tests.cpp)
+  target_link_libraries(run_loop_tests PRIVATE nnos)
+  add_test(NAME run_loop COMMAND run_loop_tests)
+
 endif()
