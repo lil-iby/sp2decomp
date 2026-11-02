@@ -165,10 +165,15 @@ int call_count() { return g_callCount; }
 
 } // namespace nx
 
-// ---- forward declaration of the first guest function ---------------------
-// Replace this with the function you want to test (from the Ghidra output).
-// The linker will resolve it from your recompiled translation unit.
-void main_00000024(nx::CPU& c);
+// ---- guest entry point ---------------------------------------------------
+// Default stub so the harness links without any real recompiled TU.
+// To test real game code: compile your recompiled .cpp and pass it via
+//   cmake -DSP2_GUEST_SOURCES="path/to/fn.cpp"
+// The linker will prefer the real definition over this one (ODR: one TU wins).
+void main_00000024(nx::CPU& c) {
+    (void)c;
+    std::puts("    main_00000024: no recompiled TU linked — returning immediately");
+}
 
 // ---- main ----------------------------------------------------------------
 

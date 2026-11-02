@@ -81,11 +81,14 @@ struct NpadBaseState {
     std::uint8_t  _pad[4];
 };
 
-using NpadFullKeyState   = NpadBaseState;
-using NpadHandheldState  = NpadBaseState;
-using NpadJoyDualState   = NpadBaseState;
-using NpadJoyLeftState   = NpadBaseState;
-using NpadJoyRightState  = NpadBaseState;
+// Each state type is a distinct struct with the same memory layout as
+// NpadBaseState.  Distinct types are required so the GetNpadStates overloads
+// have different signatures (type aliases would collapse them to one).
+struct NpadFullKeyState   : NpadBaseState {};
+struct NpadHandheldState  : NpadBaseState {};
+struct NpadJoyDualState   : NpadBaseState {};
+struct NpadJoyLeftState   : NpadBaseState {};
+struct NpadJoyRightState  : NpadBaseState {};
 
 // ---- keyboard ------------------------------------------------------------
 

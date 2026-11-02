@@ -59,13 +59,13 @@ static int FillStates(NpadBaseState* out, int count, NpadId id) {
 }
 
 int GetNpadStates(NpadHandheldState* out, int count, NpadId id) {
-    return FillStates(reinterpret_cast<NpadBaseState*>(out), count, id);
+    return FillStates(out, count, id);
 }
 int GetNpadStates(NpadFullKeyState* out, int count, NpadId id) {
-    return FillStates(reinterpret_cast<NpadBaseState*>(out), count, id);
+    return FillStates(out, count, id);
 }
 int GetNpadStates(NpadJoyDualState* out, int count, NpadId id) {
-    return FillStates(reinterpret_cast<NpadBaseState*>(out), count, id);
+    return FillStates(out, count, id);
 }
 
 NpadStyleSet GetNpadStyle(NpadId id) {
