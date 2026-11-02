@@ -9,6 +9,7 @@
 #include "lp/recon.hpp"
 #include "lp/utl.hpp"
 #include "lp/root_task.hpp"
+#include "lp/sys_init.hpp"
 #include "sead/delegate_event.hpp"
 #include "sead/framework_args.hpp"
 #include "sead/game_framework_nx.hpp"
@@ -42,6 +43,8 @@ namespace {
 
 // Addresses of the boot root's 13 direct engine dependencies, from
 // docs/ENGINE_RECONSTRUCTION.md. Kept here because the sequence reports them.
+constexpr std::uintptr_t kNninitStartup            = 0x71011f5ab4;
+constexpr std::uintptr_t kGetCpCallbackSeadAssert  = 0x71011f3774;
 constexpr std::uintptr_t kDumpDateTime            = 0x71012cdbf4;
 constexpr std::uintptr_t kAssertRegisterCallback  = 0x7101397fac;
 constexpr std::uintptr_t kInitializeArgCtor       = 0x7100e69894;
@@ -86,6 +89,14 @@ struct Runner {
 };
 
 void SequenceBody(Runner &r) {
+    // --- step 0: nninitStartup — the true first entry point -----------------------
+    // Runs BEFORE SysInit::Init. Arms nn::init's bump allocator so that everything
+    // that calls new/malloc after this point can allocate. 4 nn::os/nn::init calls.
+    r.step("Lp::Sys::SysInit::nninitStartup", [] {
+        (void)kNninitStartup;
+        Lp::Sys::SysInit::nninitStartup();
+    });
+
     // --- step 1: dumpDateTime(" Application Start Time") ---------------------------
     // The literal is the one at the call site in the boot root's body.
     r.step("Lp::Utl::dumpDateTime(\" Application Start Time\")", [] {
@@ -99,7 +110,17 @@ void SequenceBody(Runner &r) {
         (void)recorded;
     });
 
-    // --- step 3: sead::AssertConfig::registerCallback ------------------------------
+    // --- step 3a: getCpCallbackSeadAssert ------------------------------------------
+    // Ported: 0x71011f3774, 12 bytes. Returns the Lp::Sys assert callback pointer.
+    // SysInit::Init passes it to AssertConfig::registerCallback. Returns nullptr in
+    // the port (Lp::Sys internals not yet ported; sead assert is wired separately).
+    r.step("Lp::Sys::getCpCallbackSeadAssert", [] {
+        (void)kGetCpCallbackSeadAssert;
+        volatile void *cb = Lp::Sys::SysInit::getCpCallbackSeadAssert();
+        (void)cb;
+    });
+
+    // --- step 3b: sead::AssertConfig::registerCallback ----------------------------
     // Now ported (port/src/delegate_event.cpp) against sead's real DelegateEvent, so this
     // RUNS rather than stopping the sequence.
     r.step("sead::AssertConfig::registerCallback", [] {

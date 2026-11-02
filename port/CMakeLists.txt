@@ -41,6 +41,7 @@ add_library(nnos STATIC
   src/oe.cpp
   src/worker_thread_mgr.cpp
   src/root_task.cpp
+  src/sys_init.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -167,5 +168,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(root_task_tests tests/root_task_tests.cpp)
   target_link_libraries(root_task_tests PRIVATE nnos)
   add_test(NAME root_task COMMAND root_task_tests)
+
+  # Lp::Sys::SysInit -- nninitStartup (step 0) + getCpCallbackSeadAssert + printFromStartTime.
+  add_executable(sys_init_tests tests/sys_init_tests.cpp)
+  target_link_libraries(sys_init_tests PRIVATE nnos)
+  add_test(NAME sys_init COMMAND sys_init_tests)
 
 endif()
