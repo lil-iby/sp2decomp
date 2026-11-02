@@ -8,6 +8,7 @@
 
 #include "lp/recon.hpp"
 #include "lp/utl.hpp"
+#include "lp/root_task.hpp"
 #include "sead/delegate_event.hpp"
 #include "sead/framework_args.hpp"
 #include "sead/game_framework_nx.hpp"
@@ -53,6 +54,10 @@ constexpr std::uintptr_t kFrameworkCtor           = 0x7100e696a4;
 constexpr std::uintptr_t kInitializeGraphicsSystem= 0x7100e6738c;
 constexpr std::uintptr_t kMgrTaskArgCtor          = 0x7100e6b7bc;
 constexpr std::uintptr_t kRunArgCtor              = 0x7100e698a0;
+constexpr std::uintptr_t kCreateParallelInitThread = 0x71011fcadc;
+constexpr std::uintptr_t kRunParallelInitThread    = 0x71011fcb44;
+constexpr std::uintptr_t kFrameworkRun             = 0x7100e69908;
+constexpr std::uintptr_t kWaitDoneParallelInit     = 0x71011fcba4;
 
 // Tracks what this run has completed, and catches the loud failure so the caller gets a
 // precise "the port ends here" report instead of an abort.
@@ -167,6 +172,42 @@ void SequenceBody(Runner &r) {
     r.step("sead::Framework::RunArg::RunArg", [] {
         static sead::Framework::RunArg sRunArg;
         (void)sRunArg;
+    });
+
+    // --- steps 14–17: RootTask parallel-init + Framework::run -------------------
+    // In SysInit::Init the real order is:
+    //   createParallelInitThread → runParallelInitThread → Framework::run (game loop)
+    //   → waitDoneParallelInitThread
+    // A static pointer threads the RootTask instance across the three separate steps.
+    static Lp::Sys::RootTask *sRootTask = nullptr;
+
+    // Ported: 0x71011fcadc, 104 bytes. Launches the background worker thread.
+    // sRootTask is a static local (static storage) — accessible inside lambdas
+    // without capture.
+    r.step("Lp::Sys::RootTask::createParallelInitThread", [] {
+        static Lp::Sys::RootTask sStorage;
+        sRootTask = &sStorage;
+        sRootTask->createParallelInitThread();
+    });
+
+    // Ported: 0x71011fcb44, 96 bytes. Enqueues the init task and fires the worker.
+    r.step("Lp::Sys::RootTask::runParallelInitThread", [] {
+        sRootTask->runParallelInitThread(0);
+    });
+
+    // Ported: 0x7100e69908. The main game loop; bounded to 1 frame so the boot
+    // sequence test does not hang. In the real binary this runs until the game exits.
+    r.step("sead::Framework::run (1 frame)", [] {
+        static sead::Framework sFw;
+        sead::Framework::setFrameLimit(1);
+        sead::Framework::RunArg runArg;
+        sFw.run(runArg);
+        sead::Framework::setFrameLimit(-1);
+    });
+
+    // Ported: 0x71011fcba4, 56 bytes. Spin-waits until the parallel-init batch is done.
+    r.step("Lp::Sys::RootTask::waitDoneParallelInitThread", [] {
+        sRootTask->waitDoneParallelInitThread();
     });
 }
 
