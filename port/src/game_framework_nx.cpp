@@ -61,6 +61,17 @@ void GameFrameworkNx::initializeGraphicsSystem() {
         return reinterpret_cast<void *>(&nvn::unbackedCallCount);
     });
     nvn::bridge::Initialize();
+
+    // Hand the native window to the bridge so the Vulkan backend can create a swapchain.
+    // On the stub backend this is a no-op (CreateSurface just records the descriptor).
+    // Resolution matches the Switch's standard output: 1280x720.
+    nvn::bridge::SurfaceDesc surfDesc{};
+    surfDesc.nativeWindowHandle = window;
+    surfDesc.width              = 1280;
+    surfDesc.height             = 720;
+    surfDesc.backbufferCount    = 2;
+    surfDesc.vsync              = true;
+    nvn::bridge::CreateSurface(surfDesc);
 }
 
 } // namespace sead

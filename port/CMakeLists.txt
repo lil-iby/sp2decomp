@@ -44,6 +44,18 @@ target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
 target_link_libraries(nnos PUBLIC Threads::Threads)
 
+# Vulkan rendering backend (disabled by default; the stub backend is always sufficient for CI).
+# Build locally: cmake -DNVN_BACKEND_VULKAN=ON <src>   (requires the Vulkan SDK).
+option(NVN_BACKEND_VULKAN "Build the NVN→Vulkan rendering backend (requires Vulkan SDK)" OFF)
+if(NVN_BACKEND_VULKAN)
+    find_package(Vulkan REQUIRED)
+    target_link_libraries(nnos PRIVATE Vulkan::Vulkan)
+    target_compile_definitions(nnos PRIVATE NVN_BACKEND_VULKAN)
+    message(STATUS "NVN backend: Vulkan (${Vulkan_VERSION})")
+else()
+    message(STATUS "NVN backend: Stub (default)")
+endif()
+
 # Warnings that matter for ABI-faithful reconstruction work.
 if(MSVC)
   target_compile_options(nnos PRIVATE /W4)

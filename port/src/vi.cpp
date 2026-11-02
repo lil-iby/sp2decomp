@@ -10,6 +10,14 @@
 
 #include <cstdio>
 
+// Win32 native window — created lazily by GetNativeWindow when running on Windows.
+// Gated on both _WIN32 (platform) and NVN_BACKEND_VULKAN (so headless stub builds
+// never open a window during automated tests).
+#if defined(_WIN32) && defined(NVN_BACKEND_VULKAN)
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#endif
+
 namespace nn::vi {
 
 namespace {
@@ -35,6 +43,33 @@ int gWindowToken = 0;
 ScalingMode gScalingMode = ScalingMode::None;
 
 int gInitializeCount = 0;
+
+#if defined(_WIN32) && defined(NVN_BACKEND_VULKAN)
+// Native Win32 window. Created once and kept alive for the duration of the run so the
+// Vulkan swapchain has a stable HWND. Destroyed by ResetForTesting so test runs are
+// independent. On failure we fall through to the gWindowToken stub so the boot
+// sequence can still complete.
+HWND gHwnd = nullptr;
+
+static HWND ensureHwnd() {
+    if (gHwnd) return gHwnd;
+    // Register the window class once per process.
+    WNDCLASSEXW wc{};
+    wc.cbSize        = sizeof(wc);
+    wc.style         = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc   = DefWindowProcW;
+    wc.hInstance     = GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"sp2port";
+    RegisterClassExW(&wc); // idempotent; error if already registered is harmless
+    gHwnd = CreateWindowExW(0, L"sp2port", L"Splatoon 2 [sp2decomp]",
+                             WS_OVERLAPPEDWINDOW,
+                             CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
+                             nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (gHwnd) ShowWindow(gHwnd, SW_SHOWNOACTIVATE);
+    return gHwnd;
+}
+#endif
+
 } // namespace
 
 void Initialize() {
@@ -98,7 +133,15 @@ int GetNativeWindow(NativeWindowHandle *outWindow, Layer *layer) {
         *outWindow = nullptr;
         return -2;
     }
-    if (gNativeWindow == nullptr) gNativeWindow = &gWindowToken;
+    if (gNativeWindow == nullptr) {
+#if defined(_WIN32) && defined(NVN_BACKEND_VULKAN)
+        HWND hwnd = ensureHwnd();
+        // Fall back to the stub token if window creation failed (e.g. headless runner).
+        gNativeWindow = hwnd ? static_cast<void*>(hwnd) : static_cast<void*>(&gWindowToken);
+#else
+        gNativeWindow = &gWindowToken;
+#endif
+    }
     *outWindow = gNativeWindow;
     return 0;
 }
@@ -117,6 +160,9 @@ void ResetForTesting() {
     gNativeWindow = nullptr;
     gScalingMode = ScalingMode::None;
     gInitializeCount = 0;
+#if defined(_WIN32) && defined(NVN_BACKEND_VULKAN)
+    if (gHwnd) { DestroyWindow(gHwnd); gHwnd = nullptr; }
+#endif
 }
 
 } // namespace nn::vi
