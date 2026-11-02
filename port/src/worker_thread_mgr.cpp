@@ -10,7 +10,6 @@
 // yet been declared in os.hpp.
 #include "lp/worker_thread_mgr.hpp"
 
-#include <cassert>
 #include <condition_variable>
 #include <cstdio>
 #include <mutex>
@@ -41,35 +40,6 @@ struct WorkerThreadMgr::Impl {
 };
 
 // ---------------------------------------------------------------------------
-// Worker thread loop
-// ---------------------------------------------------------------------------
-static void workerLoop(WorkerThreadMgr::Impl *impl) {
-    std::unique_lock<std::mutex> lock(impl->mx);
-    while (!impl->exitFlag) {
-        impl->readyToRun.wait(lock, [impl] {
-            return impl->goFlag || impl->exitFlag;
-        });
-        if (impl->exitFlag) break;
-
-        // Drain the queue while holding lock minimally (unlock while executing fn).
-        impl->done = false;
-        impl->completed = 0;
-        while (!impl->taskQueue.empty()) {
-            auto task = impl->taskQueue.front();
-            impl->taskQueue.pop();
-            lock.unlock();
-            task.fn(task.arg);
-            lock.lock();
-            ++impl->completed;
-        }
-
-        impl->goFlag = false;
-        impl->done = true;
-        impl->batchDone.notify_all();
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -88,7 +58,34 @@ WorkerThreadMgr::~WorkerThreadMgr() {
 
 void WorkerThreadMgr::createWorker(void * /*sys*/, std::uint64_t /*config*/) {
     if (m_impl->worker.joinable()) return; // idempotent
-    m_impl->worker = std::thread(workerLoop, m_impl);
+
+    // Inline the worker loop as a lambda so it is a member-function context —
+    // this avoids the private-Impl access issue that a free `workerLoop` function
+    // would hit when naming WorkerThreadMgr::Impl from outside the class.
+    Impl *impl = m_impl;
+    m_impl->worker = std::thread([impl] {
+        std::unique_lock<std::mutex> lock(impl->mx);
+        while (!impl->exitFlag) {
+            impl->readyToRun.wait(lock, [impl] {
+                return impl->goFlag || impl->exitFlag;
+            });
+            if (impl->exitFlag) break;
+
+            impl->done = false;
+            impl->completed = 0;
+            while (!impl->taskQueue.empty()) {
+                auto task = impl->taskQueue.front();
+                impl->taskQueue.pop();
+                lock.unlock();
+                task.fn(task.arg);
+                lock.lock();
+                ++impl->completed;
+            }
+            impl->goFlag = false;
+            impl->done = true;
+            impl->batchDone.notify_all();
+        }
+    });
     std::printf("Lp::Sys::WorkerThreadMgr::createWorker: launched background thread\n");
 }
 
