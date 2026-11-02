@@ -39,6 +39,7 @@ add_library(nnos STATIC
   src/nifm.cpp
   src/account.cpp
   src/oe.cpp
+  src/worker_thread_mgr.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -155,5 +156,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(run_loop_tests tests/run_loop_tests.cpp)
   target_link_libraries(run_loop_tests PRIVATE nnos)
   add_test(NAME run_loop COMMAND run_loop_tests)
+
+  # Lp::Sys::WorkerThreadMgr -- createWorker / enqueue / run dispatch.
+  add_executable(worker_thread_mgr_tests tests/worker_thread_mgr_tests.cpp)
+  target_link_libraries(worker_thread_mgr_tests PRIVATE nnos)
+  add_test(NAME worker_thread_mgr COMMAND worker_thread_mgr_tests)
 
 endif()
