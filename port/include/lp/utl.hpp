@@ -21,4 +21,8 @@ void dumpDateTime(const char *label);
 // reconstructed engine layer and the reconstructed platform layer meet.
 void dumpMemoryInfo(const char *label);
 
+// 0x71012cdf50, 48 bytes. Sleeps the calling thread for `ms` milliseconds.
+// Called by RootTask::waitDoneParallelInitThread in its isDone() spin loop.
+void sleepCurThreadMilliSec(long ms);
+
 } // namespace Lp::Utl

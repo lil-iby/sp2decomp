@@ -75,4 +75,9 @@ void dumpMemoryInfo(const char *label) {
     nn::diag::detail::LogImpl(&meta3, "%4llu MB: Used\n", usedMb);
 }
 
+void sleepCurThreadMilliSec(long ms) {
+    // The binary calls nn::os::SleepThread(nanoseconds). 1 ms = 1,000,000 ns.
+    nn::os::SleepThread(static_cast<std::int64_t>(ms) * 1'000'000LL);
+}
+
 } // namespace Lp::Utl

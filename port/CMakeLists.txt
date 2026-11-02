@@ -40,6 +40,7 @@ add_library(nnos STATIC
   src/account.cpp
   src/oe.cpp
   src/worker_thread_mgr.cpp
+  src/root_task.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -161,5 +162,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(worker_thread_mgr_tests tests/worker_thread_mgr_tests.cpp)
   target_link_libraries(worker_thread_mgr_tests PRIVATE nnos)
   add_test(NAME worker_thread_mgr COMMAND worker_thread_mgr_tests)
+
+  # Lp::Sys::RootTask -- parallel-init orchestration (create / run / waitDone).
+  add_executable(root_task_tests tests/root_task_tests.cpp)
+  target_link_libraries(root_task_tests PRIVATE nnos)
+  add_test(NAME root_task COMMAND root_task_tests)
 
 endif()
