@@ -10,6 +10,7 @@
 #include "lp/utl.hpp"
 #include "lp/root_task.hpp"
 #include "lp/sys_init.hpp"
+#include "lp/lp_framework.hpp"
 #include "sead/delegate_event.hpp"
 #include "sead/framework_args.hpp"
 #include "sead/game_framework_nx.hpp"
@@ -53,7 +54,8 @@ constexpr std::uintptr_t kDumpMemoryInfo          = 0x71012cdccc;
 constexpr std::uintptr_t kForegroundBucketInit    = 0x710139fb3c;
 constexpr std::uintptr_t kHeapGroupCreateInstance = 0x7100ea1f54;
 constexpr std::uintptr_t kHeapGroupCreateHeap     = 0x71011f5130;
-constexpr std::uintptr_t kFrameworkCtor           = 0x7100e696a4;
+constexpr std::uintptr_t kLpFrameworkCtor          = 0x71011f44e4;
+constexpr std::uintptr_t kFrameworkCtor            = 0x7100e696a4;
 constexpr std::uintptr_t kInitializeGraphicsSystem= 0x7100e6738c;
 constexpr std::uintptr_t kMgrTaskArgCtor          = 0x7100e6b7bc;
 constexpr std::uintptr_t kRunArgCtor              = 0x7100e698a0;
@@ -174,6 +176,16 @@ void SequenceBody(Runner &r) {
             hg->createHeap(sead::HeapMgr::getRootHeap(0), sizes, names, "cOthers");
         }
     });
+    // Ported: 0x71011f44e4, 108 bytes -- game-side framework container constructed between
+    // HeapGroup::createHeap and GameFrameworkNx::initializeGraphicsSystem (BOOT_ENGINE_ORDER.md
+    // step 10). Allocated on the game heap (bl _ZnwmPN4sead4HeapEi precedes it in the callgraph).
+    r.step("Lp::Sys::Framework::Framework", [] {
+        (void)kLpFrameworkCtor;
+        static sead::GameFrameworkNx::CreateArg sCreateArg;
+        static Lp::Sys::Framework sLpFramework(sCreateArg);
+        (void)sLpFramework;
+    });
+
     // Ported: 0x7100e696a4, 60 bytes -- the boot root constructs one of these.
     r.step("sead::Framework::Framework", [] {
         static sead::Framework sFramework;

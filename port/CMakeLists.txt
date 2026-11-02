@@ -43,6 +43,7 @@ add_library(nnos STATIC
   src/root_task.cpp
   src/sys_init.cpp
   src/safe_string.cpp
+  src/lp_framework.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -179,5 +180,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(safe_string_tests tests/safe_string_tests.cpp)
   target_link_libraries(safe_string_tests PRIVATE nnos)
   add_test(NAME safe_string COMMAND safe_string_tests)
+
+  # Lp::Sys::Framework ctor (0x71011f44e4, depth 1, 108 bytes).
+  add_executable(lp_framework_tests tests/lp_framework_tests.cpp)
+  target_link_libraries(lp_framework_tests PRIVATE nnos)
+  add_test(NAME lp_framework COMMAND lp_framework_tests)
 
 endif()

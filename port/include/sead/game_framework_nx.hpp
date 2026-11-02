@@ -36,6 +36,13 @@ public:
 // sead::GameFrameworkNx — the boot root's step 5.
 class GameFrameworkNx : public GameFramework {
 public:
+    // Argument struct passed by reference to Lp::Sys::Framework::Framework
+    // (demangled name: GameFrameworkNx::CreateArg&; internal fields not yet reconstructed
+    // — no layout evidence in the boot closure; treated as an opaque config carrier).
+    struct CreateArg {
+        // Reserved for future reconstruction once internal fields are observed.
+    };
+
     // 0x7100e6724c, 20 bytes.
     static void initialize(const InitializeArg &arg);
 
