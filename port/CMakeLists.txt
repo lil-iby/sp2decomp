@@ -45,6 +45,7 @@ add_library(nnos STATIC
   src/safe_string.cpp
   src/lp_framework.cpp
   src/heap_new.cpp
+  src/i_disposer.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -191,5 +192,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(heap_new_tests tests/heap_new_tests.cpp)
   target_link_libraries(heap_new_tests PRIVATE nnos)
   add_test(NAME heap_new COMMAND heap_new_tests)
+
+  # sead::IDisposer — 0x7100e764f0 (96B) + 0x7100e76550 (144B).
+  add_executable(i_disposer_tests tests/i_disposer_tests.cpp)
+  target_link_libraries(i_disposer_tests PRIVATE nnos)
+  add_test(NAME i_disposer COMMAND i_disposer_tests)
 
 endif()

@@ -51,12 +51,31 @@ void RootTask::waitDoneParallelInitThread() {
 
 void RootTask::parallelInitThreadFunc(void *arg) {
     // arg == owning RootTask*.
-    // The real body formats a status string via sead::FormatFixedSafeString then logs it
-    // via SysInit::printFromStartTime (0x71011f603c). The subsystem dispatch (blr <indirect>)
-    // is not yet ported; this calls the two now-ported primitives in the observed order.
+    //
+    // Observed structure (boot-callgraph.txt, 180B body, 7 branches):
+    //   bl  FormatFixedSafeString   — msg1: entry label
+    //   blr (indirect)              — unresolved: subsystem name accessor
+    //   bl  SysInit::printFromStartTime
+    //   blr (indirect)              — unresolved: the actual subsystem dispatch
+    //   bl  FormatFixedSafeString   — msg2: exit label
+    //   blr (indirect)              — unresolved: subsystem name accessor (same as first)
+    //   bl  SysInit::printFromStartTime
+    //
+    // Both FormatFixedSafeString calls share the same address (0x710000dbec), so both
+    // instantiate the same capacity. The indirect dispatch in the middle is the
+    // subsystem initialisation function pointer, not yet ported.
     (void)arg;
-    sead::FormatFixedSafeString<64> msg("parallelInitThread start (subsystem dispatch stub)");
-    SysInit::printFromStartTime(msg.cstr());
+
+    // — msg1: log entry into the parallel-init batch —
+    sead::FormatFixedSafeString<128> msgStart("parallelInitThread: start [subsystem dispatch pending]");
+    SysInit::printFromStartTime(msgStart.cstr());
+
+    // [blr: unresolved subsystem dispatch — LP_ENGINE_REQUIRE would stop the test here
+    //  if the function pointer were dereferenceable; left as a documented gap.]
+
+    // — msg2: log completion of the parallel-init batch —
+    sead::FormatFixedSafeString<128> msgEnd("parallelInitThread: end [subsystem dispatch pending]");
+    SysInit::printFromStartTime(msgEnd.cstr());
 }
 
 } // namespace Lp::Sys
