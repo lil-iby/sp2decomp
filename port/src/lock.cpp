@@ -8,46 +8,48 @@
 namespace sead {
 
 namespace {
-// Placement-manage the host primitives inside the opaque storage the header reserves, so the
-// header needs no <mutex> and the object layout is fixed regardless of platform.
+// The host mutex types are heap-allocated; storage holds only the pointer. This removes
+// any constraint on sizeof(std::recursive_mutex) / sizeof(std::shared_mutex) — those sizes
+// vary by platform (MSVC x64: ~80 bytes; GCC x64: ~40 bytes) and would require awkward
+// #if guards if embedded directly. A pointer is always 8 bytes, well within the reserves.
 template <typename T, std::size_t N>
-T *As(unsigned char (&storage)[N]) {
-    static_assert(sizeof(T) <= N, "storage in sead/lock.hpp is too small for the host type");
-    return reinterpret_cast<T *>(storage);
+T **AsPtr(unsigned char (&storage)[N]) {
+    static_assert(sizeof(T *) <= N, "storage in sead/lock.hpp is too small for a pointer");
+    return reinterpret_cast<T **>(storage);
 }
 } // namespace
 
 CriticalSection::CriticalSection() {
-    new (mStorage) std::recursive_mutex();
+    *AsPtr<std::recursive_mutex>(mStorage) = new std::recursive_mutex();
     mInitialised = true;
 }
 
 CriticalSection::~CriticalSection() {
     if (mInitialised) {
-        As<std::recursive_mutex>(mStorage)->~recursive_mutex();
+        delete *AsPtr<std::recursive_mutex>(mStorage);
         mInitialised = false;
     }
 }
 
-void CriticalSection::lock() { As<std::recursive_mutex>(mStorage)->lock(); }
-void CriticalSection::unlock() { As<std::recursive_mutex>(mStorage)->unlock(); }
-bool CriticalSection::tryLock() { return As<std::recursive_mutex>(mStorage)->try_lock(); }
+void CriticalSection::lock() { (*AsPtr<std::recursive_mutex>(mStorage))->lock(); }
+void CriticalSection::unlock() { (*AsPtr<std::recursive_mutex>(mStorage))->unlock(); }
+bool CriticalSection::tryLock() { return (*AsPtr<std::recursive_mutex>(mStorage))->try_lock(); }
 
 ReadWriteLock::ReadWriteLock() {
-    new (mStorage) std::shared_mutex();
+    *AsPtr<std::shared_mutex>(mStorage) = new std::shared_mutex();
     mInitialised = true;
 }
 
 ReadWriteLock::~ReadWriteLock() {
     if (mInitialised) {
-        As<std::shared_mutex>(mStorage)->~shared_mutex();
+        delete *AsPtr<std::shared_mutex>(mStorage);
         mInitialised = false;
     }
 }
 
-void ReadWriteLock::lockRead() { As<std::shared_mutex>(mStorage)->lock_shared(); }
-void ReadWriteLock::lockWrite() { As<std::shared_mutex>(mStorage)->lock(); }
-void ReadWriteLock::unlockRead() { As<std::shared_mutex>(mStorage)->unlock_shared(); }
-void ReadWriteLock::unlockWrite() { As<std::shared_mutex>(mStorage)->unlock(); }
+void ReadWriteLock::lockRead() { (*AsPtr<std::shared_mutex>(mStorage))->lock_shared(); }
+void ReadWriteLock::lockWrite() { (*AsPtr<std::shared_mutex>(mStorage))->lock(); }
+void ReadWriteLock::unlockRead() { (*AsPtr<std::shared_mutex>(mStorage))->unlock_shared(); }
+void ReadWriteLock::unlockWrite() { (*AsPtr<std::shared_mutex>(mStorage))->unlock(); }
 
 } // namespace sead

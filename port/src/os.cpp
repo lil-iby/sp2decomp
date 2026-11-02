@@ -81,27 +81,32 @@ constexpr std::uint64_t kAllocGranularity = 0x200000; // 2 MB
 
 // ---- mutex --------------------------------------------------------------
 // The game allocates storage inline and hands us the pointer, e.g.
-// `LockMutex((MutexType *)(this + 0x348))`. Placement-new a host mutex into that
-// storage. A recursive and a plain host mutex are different types, so the variant is
-// selected at initialisation and recorded in the header; only one is ever constructed.
-struct MutexStorage {
+// `LockMutex((MutexType *)(this + 0x348))`. The actual host mutex is heap-allocated and
+// MutexType::storage holds only the pointer — same pattern used for SemaphoreType above.
+// This keeps MutexType::storage small regardless of how large the host mutex is on any
+// given compiler (MSVC x64: std::recursive_mutex is ~80 bytes; GCC x64: ~40 bytes).
+struct MutexState {
     bool isRecursive;
     union {
         std::mutex plain;
         std::recursive_mutex recursive;
     };
-    explicit MutexStorage(bool recursive) : isRecursive(recursive) {
-        if (recursive) new (&this->recursive) std::recursive_mutex();
+    explicit MutexState(bool rec) : isRecursive(rec) {
+        if (rec) new (&this->recursive) std::recursive_mutex();
         else new (&plain) std::mutex();
     }
-    ~MutexStorage() {
+    ~MutexState() {
         if (isRecursive) this->recursive.~recursive_mutex();
         else plain.~mutex();
     }
 };
 
-MutexStorage *AsStorage(MutexType *m) {
-    return reinterpret_cast<MutexStorage *>(m->storage);
+struct MutexStorage {
+    MutexState *state;
+};
+
+MutexState *AsStorage(MutexType *m) {
+    return reinterpret_cast<MutexStorage *>(m->storage)->state;
 }
 
 } // namespace
@@ -185,8 +190,8 @@ void SetMemoryHeapSize(std::uint64_t /*size*/) {
 void InitializeMutex(MutexType *mutex, bool recursive, int /*priorityInheritance*/) {
     if (mutex == nullptr) return;
     static_assert(sizeof(MutexStorage) <= sizeof(MutexType::storage),
-                  "MutexType storage too small for the host mutex");
-    new (mutex->storage) MutexStorage(recursive);
+                  "MutexType storage too small for a MutexState pointer");
+    new (mutex->storage) MutexStorage{new MutexState(recursive)};
 }
 
 void LockMutex(MutexType *mutex) {
@@ -338,9 +343,9 @@ void GetCurrentStackInfo(std::uintptr_t *outBase, std::uintptr_t *outSize) {
 
 // --- nn::os system events -----------------------------------------------------------------
 // Needed by nn::vi::GetDisplayVsyncEvent: the engine's render loop waits on a per-frame event,
-// so the event has to be real rather than a null the loop would fault on. Backed by a host
-// mutex + condition_variable pair held in the EventType's opaque storage, the same
-// placement-manage approach used for the sead locks.
+// so the event has to be real rather than a null the loop would fault on. EventState is heap-
+// allocated and EventType::storage holds only the pointer, for the same reason MutexStorage
+// uses a pointer: std::mutex + std::condition_variable together exceed 128 bytes on MSVC x64.
 namespace {
 struct EventState {
     std::mutex m;
@@ -349,18 +354,23 @@ struct EventState {
     bool autoClear;
 };
 
+struct EventStorage {
+    EventState *state;
+};
+
 EventState *EventOf(nn::os::SystemEventType *e) {
-    static_assert(sizeof(EventState) <= sizeof(nn::os::EventType::storage),
-                  "EventType::storage is too small for the host event state");
-    return reinterpret_cast<EventState *>(e->storage);
+    static_assert(sizeof(EventStorage) <= sizeof(nn::os::EventType::storage),
+                  "EventType::storage is too small for an EventState pointer");
+    return reinterpret_cast<EventStorage *>(e->storage)->state;
 }
 } // namespace
 
 int CreateSystemEvent(SystemEventType *outEvent, EventClearMode clearMode, bool initiallySignaled) {
     if (outEvent == nullptr) return -1;
-    EventState *s = new (outEvent->storage) EventState();
+    EventState *s = new EventState();
     s->signaled = initiallySignaled;
     s->autoClear = (clearMode == EventClearMode::AutoClear);
+    new (outEvent->storage) EventStorage{s};
     return 0;
 }
 
