@@ -114,9 +114,24 @@ std::uint64_t GetSystemTick();
 // SDK's "sleep indefinitely" form; default it to zero so the arity matches both.
 void SleepThread(std::int64_t nanoseconds = 0);
 
-// `lVar9 = nn::os::ConvertToTimeSpan(lVar7 - lVar9);` — 21 call sites. Converts a
-// nanosecond duration to ticks (results are compared against GetSystemTick output).
-std::uint64_t ConvertToTimeSpan(std::int64_t nanoseconds);
+// `lVar9 = nn::os::ConvertToTimeSpan(lVar7 - lVar9);` — 21 call sites. The argument is a
+// difference of two GetSystemTick values, so this converts TICKS to a nanosecond
+// TimeSpan (sead::Thread::sleep feeds the result to SleepThread, which takes ns).
+std::int64_t ConvertToTimeSpan(std::int64_t ticks);
+
+// ---- light events ---------------------------------------------------------
+// The SDK's kernel-free event, which sead::Event wraps. Its size is not observed in the
+// boot closure; storage holds a pointer to host state, like EventType.
+struct LightEventType {
+    alignas(8) unsigned char storage[0x10] = {};
+};
+void InitializeLightEvent(LightEventType *event, bool initiallySignaled, EventClearMode clearMode);
+void FinalizeLightEvent(LightEventType *event);
+void SignalLightEvent(LightEventType *event);
+void ClearLightEvent(LightEventType *event);
+void WaitLightEvent(LightEventType *event);
+// Returns true if the event was signalled before the timeout (nanoseconds) expired.
+bool TimedWaitLightEvent(LightEventType *event, std::int64_t timeoutNs);
 
 // ---- memory --------------------------------------------------------------
 // `nn::os::AllocateMemoryBlock(&local_18, 0x2000000);` — the first argument is an OUT

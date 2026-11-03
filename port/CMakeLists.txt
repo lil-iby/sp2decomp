@@ -46,6 +46,7 @@ add_library(nnos STATIC
   src/lp_framework.cpp
   src/heap_new.cpp
   src/i_disposer.cpp
+  src/event.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -197,5 +198,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(i_disposer_tests tests/i_disposer_tests.cpp)
   target_link_libraries(i_disposer_tests PRIVATE nnos)
   add_test(NAME i_disposer COMMAND i_disposer_tests)
+
+  # sead::Event (0x7100e98d5c) over nn::os light events.
+  add_executable(event_tests tests/event_tests.cpp)
+  target_link_libraries(event_tests PRIVATE nnos)
+  add_test(NAME event COMMAND event_tests)
 
 endif()

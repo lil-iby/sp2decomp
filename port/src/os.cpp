@@ -123,11 +123,11 @@ void SleepThread(std::int64_t nanoseconds) {
     std::this_thread::sleep_for(std::chrono::nanoseconds(nanoseconds));
 }
 
-std::uint64_t ConvertToTimeSpan(std::int64_t nanoseconds) {
-    // nn::TimeSpan is nanoseconds in the SDK; the call sites feed the result straight
-    // into comparisons against GetSystemTick output, so convert to ticks.
-    if (nanoseconds <= 0) return 0;
-    return static_cast<std::uint64_t>(nanoseconds) * 192ull / 10000ull;
+std::int64_t ConvertToTimeSpan(std::int64_t ticks) {
+    // Split to avoid overflowing ticks * 1e9 for long uptimes.
+    constexpr std::int64_t kFreq = static_cast<std::int64_t>(kTickFrequencyHz);
+    constexpr std::int64_t kNsPerSec = 1'000'000'000;
+    return (ticks / kFreq) * kNsPerSec + (ticks % kFreq) * kNsPerSec / kFreq;
 }
 
 // ---- TLS ----------------------------------------------------------------
@@ -398,5 +398,64 @@ void WaitSystemEvent(SystemEventType *event) {
     s->cv.wait(lock, [s] { return s->signaled; });
     // AutoClear: consuming the signal resets it, which is what a per-frame vsync wait means.
     if (s->autoClear) s->signaled = false;
+}
+
+// --- nn::os light events (wrapped by sead::Event) -------------------------------------------
+namespace {
+EventState *&LightStateOf(LightEventType *e) {
+    static_assert(sizeof(EventState *) <= sizeof(LightEventType::storage),
+                  "LightEventType::storage is too small for an EventState pointer");
+    return *reinterpret_cast<EventState **>(e->storage);
+}
+} // namespace
+
+void InitializeLightEvent(LightEventType *event, bool initiallySignaled, EventClearMode clearMode) {
+    if (event == nullptr) return;
+    EventState *s = new EventState();
+    s->signaled = initiallySignaled;
+    s->autoClear = (clearMode == EventClearMode::AutoClear);
+    LightStateOf(event) = s;
+}
+
+void FinalizeLightEvent(LightEventType *event) {
+    if (event == nullptr) return;
+    EventState *&s = LightStateOf(event);
+    delete s;
+    s = nullptr;
+}
+
+void SignalLightEvent(LightEventType *event) {
+    if (event == nullptr || LightStateOf(event) == nullptr) return;
+    EventState *s = LightStateOf(event);
+    {
+        std::lock_guard<std::mutex> lock(s->m);
+        s->signaled = true;
+    }
+    s->cv.notify_all();
+}
+
+void ClearLightEvent(LightEventType *event) {
+    if (event == nullptr || LightStateOf(event) == nullptr) return;
+    EventState *s = LightStateOf(event);
+    std::lock_guard<std::mutex> lock(s->m);
+    s->signaled = false;
+}
+
+void WaitLightEvent(LightEventType *event) {
+    if (event == nullptr || LightStateOf(event) == nullptr) return;
+    EventState *s = LightStateOf(event);
+    std::unique_lock<std::mutex> lock(s->m);
+    s->cv.wait(lock, [s] { return s->signaled; });
+    if (s->autoClear) s->signaled = false;
+}
+
+bool TimedWaitLightEvent(LightEventType *event, std::int64_t timeoutNs) {
+    if (event == nullptr || LightStateOf(event) == nullptr) return false;
+    EventState *s = LightStateOf(event);
+    std::unique_lock<std::mutex> lock(s->m);
+    const bool signaled = s->cv.wait_for(lock, std::chrono::nanoseconds(timeoutNs < 0 ? 0 : timeoutNs),
+                                         [s] { return s->signaled; });
+    if (signaled && s->autoClear) s->signaled = false;
+    return signaled;
 }
 } // namespace nn::os
