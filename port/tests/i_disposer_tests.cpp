@@ -2,12 +2,15 @@
 //
 // Covers:
 //   sead::IDisposer()              — 0x7100e764f0, 96B, no-heap form
-//   sead::IDisposer(Heap*, uint)   — 0x7100e76550, 144B, explicit heap form
+//   sead::IDisposer(Heap*, HeapNullOption) — 0x7100e76550, 144B
 //   virtual ~IDisposer()           — destructor (unlinks from list when linked)
 //   layout: sizeof(IDisposer) == 0x20
 #include "sead/i_disposer.hpp"
 #include "sead/heap_mgr.hpp"
 #include "sead/heap.hpp"
+#include "sead/heap_new.hpp"
+
+#include <new>
 
 #include <cstdio>
 #include <cstddef>
@@ -27,84 +30,85 @@ struct HeapFixture {
 };
 } // namespace
 
+using Opt = sead::IDisposer::HeapNullOption;
+
 // ---------------------------------------------------------------------------
-// Test 1 — sizeof(IDisposer) == 0x20 (vtable + ListNode + Heap*)
+// Test 1 — sizeof(IDisposer) == 0x20 (vtable + Heap* + ListNode)
 // ---------------------------------------------------------------------------
 static void test_layout() {
     std::printf("\n[1] sizeof(sead::IDisposer) == 0x20\n");
     Check(sizeof(sead::IDisposer) == 0x20, "sizeof == 0x20");
-    // mDisposerListNode is at offset 8 (right after vtable ptr in ABI)
-    sead::IDisposer *tmp = nullptr;
-    // Can't take offsetof of a non-standard layout class, but the static_assert
-    // in the header already validates the size at compile time.
-    Check(true, "static_assert in header passed (compile-time proof)");
 }
 
 // ---------------------------------------------------------------------------
-// Test 2 — no-arg constructor does not crash; getDisposerHeap() is set
+// Test 2 — no-arg constructor with no HeapMgr: unregistered, no crash
 // ---------------------------------------------------------------------------
 static void test_default_ctor_no_heap() {
-    std::printf("\n[2] IDisposer() — no current heap (no crash)\n");
-    // No HeapMgr initialised → current heap is null → constructor is a no-op.
+    std::printf("\n[2] IDisposer() — no heap manager\n");
     {
         sead::IDisposer obj;
-        Check(obj.getDisposerHeap() == nullptr, "getDisposerHeap() == nullptr when no heap active");
-    }
-    Check(true, "destructor of no-heap IDisposer did not crash");
-}
-
-// ---------------------------------------------------------------------------
-// Test 3 — no-arg constructor picks up the current heap
-// ---------------------------------------------------------------------------
-static void test_default_ctor_with_heap() {
-    std::printf("\n[3] IDisposer() — records current heap\n");
-    HeapFixture fix;
-    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
-    {
-        sead::IDisposer obj;
-        Check(obj.getDisposerHeap() == root,
-              "getDisposerHeap() returns the active root heap");
+        Check(obj.getDisposerHeap() == nullptr, "getDisposerHeap() == nullptr");
     }
     Check(true, "destructor did not crash");
 }
 
 // ---------------------------------------------------------------------------
-// Test 4 — explicit-heap constructor stores the provided heap
+// Test 3 — no-arg constructor uses the heap whose memory holds the object
 // ---------------------------------------------------------------------------
-static void test_explicit_heap_ctor() {
-    std::printf("\n[4] IDisposer(heap, 1) — stores the supplied heap\n");
+static void test_default_ctor_contain_heap() {
+    std::printf("\n[3] IDisposer() — contain-heap lookup\n");
     HeapFixture fix;
     sead::Heap *root = sead::HeapMgr::getRootHeap(0);
     {
-        sead::IDisposer obj(root, 1);
+        sead::IDisposer onStack;
+        Check(onStack.getDisposerHeap() == nullptr,
+              "object on the stack is in no heap -> unregistered");
+    }
+    void *mem = operator new(sizeof(sead::IDisposer), root, 8);
+    Check(mem != nullptr, "allocated from root heap");
+    if (mem == nullptr) return;
+    auto *inHeap = new (mem) sead::IDisposer();
+    Check(inHeap->getDisposerHeap() == root, "object inside root heap registers with root");
+    Check(inHeap->disposerListNode().isLinked(), "and is linked into root's list");
+    inHeap->~IDisposer();
+    root->free(mem);
+}
+
+// ---------------------------------------------------------------------------
+// Test 4 — an explicit heap is always used
+// ---------------------------------------------------------------------------
+static void test_explicit_heap_ctor() {
+    std::printf("\n[4] IDisposer(heap) — stores the supplied heap\n");
+    HeapFixture fix;
+    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
+    {
+        sead::IDisposer obj(root, Opt::DoNotAppendDisposerIfNoHeapSpecified);
         Check(obj.getDisposerHeap() == root, "getDisposerHeap() == supplied heap");
     }
 }
 
 // ---------------------------------------------------------------------------
-// Test 5 — null heap + heapNullOption==1 falls back to current heap
+// Test 5 — UseSpecifiedOrCurrentHeap falls back to the current heap
 // ---------------------------------------------------------------------------
-static void test_null_heap_option1() {
-    std::printf("\n[5] IDisposer(nullptr, 1) — falls back to current heap\n");
+static void test_null_heap_current() {
+    std::printf("\n[5] IDisposer(nullptr, UseSpecifiedOrCurrentHeap)\n");
     HeapFixture fix;
     sead::Heap *root = sead::HeapMgr::getRootHeap(0);
     {
-        sead::IDisposer obj(nullptr, 1);
-        Check(obj.getDisposerHeap() == root,
-              "getDisposerHeap() falls back to current heap when nullptr+option1");
+        sead::IDisposer obj(nullptr, Opt::UseSpecifiedOrCurrentHeap);
+        Check(obj.getDisposerHeap() == root, "falls back to the current heap");
     }
 }
 
 // ---------------------------------------------------------------------------
-// Test 6 — null heap + heapNullOption==0 stays null (no fallback)
+// Test 6 — DoNotAppendDisposerIfNoHeapSpecified stays unregistered
 // ---------------------------------------------------------------------------
-static void test_null_heap_option0() {
-    std::printf("\n[6] IDisposer(nullptr, 0) — no fallback, stays null\n");
+static void test_null_heap_do_not_append() {
+    std::printf("\n[6] IDisposer(nullptr, DoNotAppendDisposerIfNoHeapSpecified)\n");
     HeapFixture fix;
     {
-        sead::IDisposer obj(nullptr, 0);
-        Check(obj.getDisposerHeap() == nullptr,
-              "getDisposerHeap() == nullptr when option==0");
+        sead::IDisposer obj(nullptr, Opt::DoNotAppendDisposerIfNoHeapSpecified);
+        Check(obj.getDisposerHeap() == nullptr, "getDisposerHeap() == nullptr");
     }
 }
 
@@ -133,11 +137,11 @@ static void test_registration_roundtrip() {
     sead::Heap *root = sead::HeapMgr::getRootHeap(0);
     const std::size_t before = root->disposerCount();
     {
-        sead::IDisposer a(root, 1);
+        sead::IDisposer a(root);
         Check(a.disposerListNode().isLinked(), "node is linked after construction");
         Check(root->disposerCount() == before + 1, "heap count +1 after one disposer");
         {
-            sead::IDisposer b(root, 1);
+            sead::IDisposer b(root);
             Check(root->disposerCount() == before + 2, "heap count +2 after two disposers");
         }
         Check(root->disposerCount() == before + 1, "inner disposer removed itself");
@@ -150,12 +154,12 @@ static void test_registration_roundtrip() {
 // Test 9 — option 0 with null heap registers nowhere
 // ---------------------------------------------------------------------------
 static void test_no_registration_without_heap() {
-    std::printf("\n[9] IDisposer(nullptr, 0) — not linked anywhere\n");
+    std::printf("\n[9] IDisposer(nullptr, DoNotAppend...) — not linked anywhere\n");
     HeapFixture fix;
     sead::Heap *root = sead::HeapMgr::getRootHeap(0);
     const std::size_t before = root->disposerCount();
     {
-        sead::IDisposer obj(nullptr, 0);
+        sead::IDisposer obj(nullptr, Opt::DoNotAppendDisposerIfNoHeapSpecified);
         Check(!obj.disposerListNode().isLinked(), "node is not linked");
         Check(root->disposerCount() == before, "root count unchanged");
     }
@@ -209,10 +213,10 @@ int main() {
 
     test_layout();
     test_default_ctor_no_heap();
-    test_default_ctor_with_heap();
+    test_default_ctor_contain_heap();
     test_explicit_heap_ctor();
-    test_null_heap_option1();
-    test_null_heap_option0();
+    test_null_heap_current();
+    test_null_heap_do_not_append();
     test_virtual_dtor();
     test_registration_roundtrip();
     test_no_registration_without_heap();

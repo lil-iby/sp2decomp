@@ -50,7 +50,8 @@ struct HeapCreateArg {
 // registers nowhere.
 class Heap : public IDisposer {
 public:
-    explicit Heap(Heap *parent = nullptr) : IDisposer(parent, 0) {}
+    explicit Heap(Heap *parent = nullptr)
+        : IDisposer(parent, HeapNullOption::UseSpecifiedOrContainHeap) {}
     // Detaches every disposer still registered here, so none is left pointing into a
     // destroyed list. The disposers themselves are not destroyed (they are not owned).
     ~Heap() override;

@@ -1,26 +1,20 @@
 // sead::IDisposer — the base class every heap-managed object inherits from.
 //
-// When a heap is destroyed it walks its disposer list and calls ~IDisposer() on
-// each registrant, giving objects a chance to clean up before their memory goes.
+// When a heap is destroyed it walks its disposer list so registrants can clean up.
 //
-// Addresses observed in the boot closure (boot-callgraph.txt / boot-closure.txt):
-//   0x7100e764f0  IDisposer()                — 96B, 2 call targets  (no-heap form)
-//   0x7100e76550  IDisposer(Heap*, uint)     — 144B, 3 call targets (explicit heap)
-//   0x7100e765e0  IDisposer tail-call target — reached via `b sead::IDisposer` in CalcInGSysCalc
+//   0x7100e764f0  IDisposer()                       96B, 2 calls: findContainHeap, appendDisposer_
+//   0x7100e76550  IDisposer(Heap*, HeapNullOption)  144B, 3 calls: appendDisposer_,
+//                                                   findContainHeap, getCurrentHeap
 //
-// ENGINE_REFERENCE.md entry (0x7100e76550):
-//   void __thiscall sead::IDisposer::IDisposer(IDisposer *this, Heap *param_1, uint param_2)
-//   4 distinct call targets; 34 body lines
+// The option values and field order were checked against open-ead/sead (a public
+// reimplementation of the library). Its constructors call exactly the targets counted above,
+// which is what makes the reference trustworthy here. Written independently, not copied.
 //
-// Layout (confirmed by delegate_event.hpp offset comments and mDisposer[0x20] placeholder):
-//   +0x00  vtable ptr   (8 bytes, implicit in ABI)
-//   +0x08  mDisposerListNode  (ListNode = 16 bytes: mNext + mPrev)
-//   +0x18  mDisposerHeap      (Heap*, 8 bytes)
-//   total: 0x20 = 32 bytes
-//
-// Heap::appendDisposer_ (0x7100e7b29c, depth 3, 120B) — the call that links this node
-// into the owning heap's disposer list — is deferred until Heap's internal CS and list
-// fields are ported. The constructor stores the heap pointer today; the linkage follows.
+// Layout (x64 / AArch64):
+//   +0x00  vtable ptr
+//   +0x08  mDisposerHeap
+//   +0x10  mDisposerListNode  (ListNode: mNext, mPrev)
+//   total 0x20
 #pragma once
 
 #include "sead/list_node.hpp"
@@ -33,11 +27,19 @@ class Heap;
 
 class IDisposer {
 public:
-    // 0x7100e764f0 — no-heap form: registers with the current heap from HeapMgr.
+    // What to do when the constructor is given no heap.
+    enum class HeapNullOption : std::uint32_t {
+        AlwaysUseSpecifiedHeap = 0,               // a null heap is a caller error
+        UseSpecifiedOrContainHeap = 1,            // heap whose memory holds `this`
+        DoNotAppendDisposerIfNoHeapSpecified = 2, // stay unregistered
+        UseSpecifiedOrCurrentHeap = 3,            // HeapMgr's current heap
+    };
+
+    // 0x7100e764f0 — same as IDisposer(nullptr, UseSpecifiedOrContainHeap).
     IDisposer();
-    // 0x7100e76550 — explicit heap form.  heapNullOption==1 → use current heap when
-    // heap==nullptr; heapNullOption==0 → skip registration.
-    explicit IDisposer(Heap *heap, unsigned int heapNullOption);
+    // 0x7100e76550
+    explicit IDisposer(Heap *heap,
+                       HeapNullOption option = HeapNullOption::UseSpecifiedOrCurrentHeap);
     virtual ~IDisposer();
 
     IDisposer(const IDisposer &) = delete;
@@ -47,14 +49,14 @@ public:
     const ListNode &disposerListNode() const { return mDisposerListNode; }
 
 protected:
-    ListNode mDisposerListNode;    // +0x08 — node in the owning heap's disposer list
-    Heap    *mDisposerHeap = nullptr; // +0x18 — back-pointer to the registering heap
+    Heap    *mDisposerHeap = nullptr; // +0x08
+    ListNode mDisposerListNode;       // +0x10
 
 private:
-    friend class Heap; // appendDisposer_ / removeDisposer_ access mDisposerListNode directly
+    friend class Heap; // appendDisposer_ / removeDisposer_ splice mDisposerListNode
 };
 
 static_assert(sizeof(IDisposer) == 0x20,
-              "sead::IDisposer must be exactly 0x20 bytes (vtable+ListNode+Heap*)");
+              "sead::IDisposer must be exactly 0x20 bytes (vtable+Heap*+ListNode)");
 
 } // namespace sead
