@@ -19,21 +19,25 @@ T **AsPtr(unsigned char (&storage)[N]) {
 }
 } // namespace
 
-CriticalSection::CriticalSection() {
-    *AsPtr<std::recursive_mutex>(mStorage) = new std::recursive_mutex();
-    mInitialised = true;
+CriticalSection::CriticalSection() : IDisposer() {
+    nn::os::InitializeMutex(&mCriticalSectionInner, true, 0);
 }
 
-CriticalSection::~CriticalSection() {
-    if (mInitialised) {
-        delete *AsPtr<std::recursive_mutex>(mStorage);
-        mInitialised = false;
-    }
+CriticalSection::CriticalSection(Heap *disposerHeap)
+    : IDisposer(disposerHeap, HeapNullOption::UseSpecifiedOrContainHeap) {
+    nn::os::InitializeMutex(&mCriticalSectionInner, true, 0);
 }
 
-void CriticalSection::lock() { (*AsPtr<std::recursive_mutex>(mStorage))->lock(); }
-void CriticalSection::unlock() { (*AsPtr<std::recursive_mutex>(mStorage))->unlock(); }
-bool CriticalSection::tryLock() { return (*AsPtr<std::recursive_mutex>(mStorage))->try_lock(); }
+CriticalSection::CriticalSection(Heap *disposerHeap, HeapNullOption option)
+    : IDisposer(disposerHeap, option) {
+    nn::os::InitializeMutex(&mCriticalSectionInner, true, 0);
+}
+
+CriticalSection::~CriticalSection() { nn::os::FinalizeMutex(&mCriticalSectionInner); }
+
+void CriticalSection::lock() { nn::os::LockMutex(&mCriticalSectionInner); }
+void CriticalSection::unlock() { nn::os::UnlockMutex(&mCriticalSectionInner); }
+bool CriticalSection::tryLock() { return nn::os::TryLockMutex(&mCriticalSectionInner); }
 
 ReadWriteLock::ReadWriteLock() {
     *AsPtr<std::shared_mutex>(mStorage) = new std::shared_mutex();

@@ -249,6 +249,19 @@ void UnlockMutex(MutexType *mutex) {
     else s->plain.unlock();
 }
 
+bool TryLockMutex(MutexType *mutex) {
+    if (mutex == nullptr) return false;
+    auto *s = AsStorage(mutex);
+    return s->isRecursive ? s->recursive.try_lock() : s->plain.try_lock();
+}
+
+void FinalizeMutex(MutexType *mutex) {
+    if (mutex == nullptr) return;
+    auto *storage = reinterpret_cast<MutexStorage *>(mutex->storage);
+    delete storage->state;
+    storage->state = nullptr;
+}
+
 // The semaphore was previously a no-op, which is the most dangerous stub in this file: a
 // no-op Acquire never blocks and a no-op Release never wakes, so any code that waits on
 // one would either spin forever or proceed without its precondition being met. The boot

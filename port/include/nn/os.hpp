@@ -26,12 +26,11 @@ namespace nn::os {
 // SDK never computes sizeof() for them. Where a size is measurable from the binary it is
 // recorded below; where it is not, that is stated rather than guessed.
 struct MutexType {
-    // NOT MEASURED. Two `.bss` globals initialised 0x20 apart suggest sizeof <= 0x20,
-    // but they are distinct symbols rather than proven array elements, so 0x20 is a
-    // candidate rather than a measurement. The host needs 48 bytes for a
-    // std::recursive_mutex, which exceeds that candidate; that is safe here because no
-    // observed site walks an array of these, but it is NOT ABI-compatible.
-    alignas(16) unsigned char storage[0x40];
+    // 0x20. Two `.bss` globals initialised 0x20 apart suggest sizeof <= 0x20, and
+    // sead::CriticalSection = IDisposer (0x20) + MutexType must total 0x40 for
+    // Lp::Sys::HeapGroup's offsets (+0x10 CriticalSection, +0x50 ReadWriteLock) to hold.
+    // The host mutex lives behind a pointer (see os.cpp), so 0x20 is ample.
+    alignas(16) unsigned char storage[0x20];
 };
 
 struct SemaphoreType {
@@ -163,6 +162,8 @@ void InitializeMutex(MutexType *mutex, bool recursive, int priorityInheritance);
 void LockMutex(MutexType *mutex);
 // `nn::os::UnlockMutex((MutexType *)(puVar3 + 0x768));` — 170 call sites.
 void UnlockMutex(MutexType *mutex);
+bool TryLockMutex(MutexType *mutex);
+void FinalizeMutex(MutexType *mutex);
 
 void InitializeSemaphore(SemaphoreType *semaphore, int initial, int max);
 void AcquireSemaphore(SemaphoreType *semaphore);

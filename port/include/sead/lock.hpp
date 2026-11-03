@@ -5,30 +5,37 @@
 //     sead::CriticalSection::CriticalSection((CriticalSection *)(obj + 2));   // +0x10
 //     sead::ReadWriteLock::ReadWriteLock((ReadWriteLock *)(obj + 10));        // +0x50
 //
-// Implemented over host synchronisation primitives, the same interface-not-algorithm choice
-// the platform layer used for nn::os and the heap layer used for ExpHeap.
+// CriticalSection follows the binary: an IDisposer holding a recursive nn::os mutex
+// (ctors 0x7100e98ab0 60B / 0x7100e98aec 64B, lock 0x7100e98bd8, unlock 0x7100e98be8, each
+// one nn::os call; behaviour from open-ead/sead, written independently). ReadWriteLock is
+// still a host shared_mutex behind reserved storage.
 #pragma once
+
+#include "nn/os.hpp"
+#include "sead/i_disposer.hpp"
 
 namespace sead {
 
-class CriticalSection {
+class CriticalSection : public IDisposer {
 public:
     CriticalSection();
-    ~CriticalSection();
+    explicit CriticalSection(Heap *disposerHeap);
+    CriticalSection(Heap *disposerHeap, HeapNullOption option);
+    ~CriticalSection() override;
 
     void lock();
     void unlock();
     bool tryLock();
+    bool try_lock() { return tryLock(); } // standard Lockable spelling
 
     CriticalSection(const CriticalSection &) = delete;
     CriticalSection &operator=(const CriticalSection &) = delete;
 
-private:
-    // Storage for the host primitive, sized generously so the header carries no platform
-    // dependency. Initialised in the implementation.
-    alignas(8) unsigned char mStorage[0x38] = {}; // total 0x40 so HeapGroup lands mRW at +0x50
-    bool mInitialised = false;
+    nn::os::MutexType mCriticalSectionInner{};
 };
+
+// HeapGroup puts a CriticalSection at +0x10 and a ReadWriteLock at +0x50.
+static_assert(sizeof(CriticalSection) == 0x40, "sead::CriticalSection must be 0x40 bytes");
 
 class ReadWriteLock {
 public:

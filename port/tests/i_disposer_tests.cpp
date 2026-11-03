@@ -10,7 +10,10 @@
 #include "sead/heap.hpp"
 #include "sead/heap_new.hpp"
 
+#include "sead/lock.hpp"
+
 #include <new>
+#include <thread>
 
 #include <cstdio>
 #include <cstddef>
@@ -207,6 +210,43 @@ static void test_parent_destroyed_first() {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Test 12 — sead::CriticalSection: an IDisposer over a recursive nn::os mutex
+// ---------------------------------------------------------------------------
+static void test_critical_section() {
+    std::printf("\n[12] sead::CriticalSection\n");
+    Check(sizeof(sead::CriticalSection) == 0x40, "sizeof == 0x40 (IDisposer + MutexType)");
+
+    HeapFixture fix;
+    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
+    const std::size_t before = root->disposerCount();
+
+    void *mem = operator new(sizeof(sead::CriticalSection), root, 16);
+    auto *cs = new (mem) sead::CriticalSection();
+    Check(cs->getDisposerHeap() == root, "inside the root heap, it registers with root");
+    Check(root->disposerCount() == before + 1, "root disposer count +1");
+
+    cs->lock();
+    cs->lock(); // recursive: must not deadlock
+    bool otherGotIt = true;
+    std::thread other([&] { otherGotIt = cs->tryLock(); });
+    other.join();
+    Check(!otherGotIt, "tryLock from another thread fails while held");
+    cs->unlock();
+    cs->unlock();
+
+    std::thread again([&] {
+        otherGotIt = cs->tryLock();
+        if (otherGotIt) cs->unlock();
+    });
+    again.join();
+    Check(otherGotIt, "tryLock from another thread succeeds once released");
+
+    cs->~CriticalSection();
+    root->free(mem);
+    Check(root->disposerCount() == before, "destruction unregisters it");
+}
+
 int main() {
     std::printf("sead::IDisposer tests\n");
     std::printf("(0x7100e764f0 / 0x7100e76550)\n");
@@ -222,6 +262,7 @@ int main() {
     test_no_registration_without_heap();
     test_child_heap_registers_with_parent();
     test_parent_destroyed_first();
+    test_critical_section();
 
     std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
