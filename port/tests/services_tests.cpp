@@ -3,6 +3,7 @@
 // As with the os tests, each check asserts a property the CALL SITES require, quoted
 // from docs/PLATFORM_IMPLEMENTATION_SPEC.md.
 #include "nn/util.hpp"
+#include "nn/fs.hpp"
 #include "nn/services.hpp"
 
 #include <cstdio>

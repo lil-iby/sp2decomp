@@ -1,22 +1,9 @@
-// nn::fs / nn::time / nn::mem — platform services reconstructed from call-site evidence.
+// nn::time / nn::mem — platform services reconstructed from call-site evidence.
+// (nn::fs lives in nn/fs.hpp.)
 #pragma once
 
 #include <cstdint>
 #include <cstddef>
-
-namespace nn::fs {
-
-// `nn::fs::QueryMountRomCacheSize(&local_28);` — out parameter, result code returned.
-int QueryMountRomCacheSize(std::uint64_t *outSize);
-
-// `nn::fs::MountRom("content", pvVar3, local_28);` — 2 sites, and the mount name is the
-// literal "content" at both. Shape: (const char *name, void *cache, std::uint64_t size).
-int MountRom(const char *name, void *cache, std::uint64_t cacheSize);
-
-// `nn::fs::Unmount("content")` is the complement used by teardown paths.
-int Unmount(const char *name);
-
-} // namespace nn::fs
 
 namespace nn::time {
 

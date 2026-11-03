@@ -12,6 +12,7 @@
 // later stages to read back.
 #include "nn/init.hpp"
 #include "nn/os.hpp"
+#include "nn/fs.hpp"
 #include "nn/services.hpp"
 #include "nn/util.hpp"
 

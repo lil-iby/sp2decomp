@@ -50,6 +50,7 @@ add_library(nnos STATIC
   src/message_queue.cpp
   src/thread.cpp
   src/semaphore.cpp
+  src/fs.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -216,5 +217,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(lock_tests tests/lock_tests.cpp)
   target_link_libraries(lock_tests PRIVATE nnos)
   add_test(NAME lock COMMAND lock_tests)
+
+  # nn::fs — RomFS mounting and file/directory reads over a host folder.
+  add_executable(fs_tests tests/fs_tests.cpp)
+  target_link_libraries(fs_tests PRIVATE nnos)
+  add_test(NAME fs COMMAND fs_tests)
 
 endif()

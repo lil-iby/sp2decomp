@@ -1,4 +1,4 @@
-// nn::fs / nn::time / nn::mem implementation — host stand-ins.
+// nn::time / nn::mem implementation — host stand-ins.
 #include "nn/services.hpp"
 
 #include <chrono>
@@ -12,64 +12,6 @@
 #if defined(_WIN32)
 #  include <malloc.h>
 #endif
-
-namespace nn::fs {
-
-namespace {
-
-// RomFS mounts observed in the game: the literal name "content" at both MountRom call
-// sites, plus the update/data mounts the SDK uses. Track them so Unmount is meaningful
-// and a double mount can be detected.
-std::mutex g_mountLock;
-bool g_mounted[8] = {};
-char g_mountNames[8][32] = {};
-
-// The boot path mounts the game's RomFS. The cache the caller supplies is host memory;
-// there is no image to mount, so the cache requirement is reported and the mount is
-// recorded rather than backed by a filesystem. Serving actual file reads from RomFS is
-// out of scope for the boot milestone and would need the .nca contents.
-constexpr std::uint64_t kPlausibleRomCacheSize = 4ull * 1024 * 1024;
-
-} // namespace
-
-int QueryMountRomCacheSize(std::uint64_t *outSize) {
-    if (outSize == nullptr) return -1;
-    *outSize = kPlausibleRomCacheSize;
-    return 0;
-}
-
-int MountRom(const char *name, void *cache, std::uint64_t cacheSize) {
-    if (name == nullptr || cache == nullptr || cacheSize == 0) return -1;
-    std::lock_guard<std::mutex> g(g_mountLock);
-    // Reject an already-mounted name: mounting the same RomFS twice would give two
-    // independent handles for one filesystem, which callers do not expect.
-    for (int i = 0; i < 8; ++i) {
-        if (g_mounted[i] && std::strcmp(g_mountNames[i], name) == 0) return -1;
-    }
-    for (int i = 0; i < 8; ++i) {
-        if (!g_mounted[i]) {
-            g_mounted[i] = true;
-            std::snprintf(g_mountNames[i], sizeof(g_mountNames[i]), "%s", name);
-            return 0;
-        }
-    }
-    return -1; // mount table full
-}
-
-int Unmount(const char *name) {
-    if (name == nullptr) return -1;
-    std::lock_guard<std::mutex> g(g_mountLock);
-    for (int i = 0; i < 8; ++i) {
-        if (g_mounted[i] && std::strcmp(g_mountNames[i], name) == 0) {
-            g_mounted[i] = false;
-            g_mountNames[i][0] = '\0';
-            return 0;
-        }
-    }
-    return -1;
-}
-
-} // namespace nn::fs
 
 namespace nn::time {
 
