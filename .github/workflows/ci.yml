@@ -53,6 +53,29 @@ jobs:
           name: sp2port-windows-${{ github.ref_name }}
           path: dist\*.exe
 
+  build-windows-vulkan:
+    name: Build & Test (Windows MSVC, Vulkan backend)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fetches the pinned Vulkan-Headers and volk; no SDK install needed. The runner has no
+      # GPU, so the run also exercises the "no Vulkan driver" fallback.
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DSP2PORT_BUILD_TESTS=ON `
+            -DNVN_BACKEND_VULKAN=ON
+
+      - name: Build
+        run: cmake --build build --config RelWithDebInfo --parallel
+
+      - name: Run tests
+        working-directory: build
+        run: ctest -C RelWithDebInfo --output-on-failure --timeout 60 --no-tests=error
+
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest

@@ -71,6 +71,10 @@ struct SurfaceDesc {
 bool CreateSurface(const SurfaceDesc& desc);
 void DestroySurface();
 
+// True when frames actually reach a window: the Vulkan backend found a driver and built a
+// swapchain. False on the stub backend, or when Vulkan was unavailable at run time.
+bool IsPresenting();
+
 // ---- frame boundary helpers ----------------------------------------------
 // The harness calls these so the backend can manage frame pacing.
 void BeginFrame();   // acquire backbuffer image (Vulkan: vkAcquireNextImageKHR)

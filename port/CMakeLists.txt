@@ -56,17 +56,47 @@ target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
 target_link_libraries(nnos PUBLIC Threads::Threads)
 
-# Vulkan rendering backend (disabled by default; the stub backend is always sufficient for CI).
-# Build locally: cmake -DNVN_BACKEND_VULKAN=ON <src>   (requires the Vulkan SDK).
-option(NVN_BACKEND_VULKAN "Build the NVN→Vulkan rendering backend (requires Vulkan SDK)" OFF)
+# Vulkan rendering backend: cmake -DNVN_BACKEND_VULKAN=ON <src>
+# No Vulkan SDK needed. The official headers and the volk loader are fetched at configure
+# time (pinned, not committed) and Vulkan is loaded from the driver's vulkan-1 library at
+# run time; without a driver the bridge falls back to the stub behaviour.
+option(NVN_BACKEND_VULKAN "Build the NVN->Vulkan rendering backend" OFF)
 if(NVN_BACKEND_VULKAN)
-    find_package(Vulkan REQUIRED)
-    target_link_libraries(nnos PRIVATE Vulkan::Vulkan)
+    include(FetchContent)
+    set(SP2_VULKAN_TAG vulkan-sdk-1.4.341.0)
+    FetchContent_Declare(vulkan_headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+        GIT_TAG        ${SP2_VULKAN_TAG}
+        GIT_SHALLOW    TRUE)
+    # SOURCE_SUBDIR points nowhere so only the sources are fetched; volk.c is built below.
+    FetchContent_Declare(volk
+        GIT_REPOSITORY https://github.com/zeux/volk.git
+        GIT_TAG        ${SP2_VULKAN_TAG}
+        GIT_SHALLOW    TRUE
+        SOURCE_SUBDIR  do-not-add)
+    FetchContent_MakeAvailable(vulkan_headers volk)
+
+    enable_language(C)
+    add_library(sp2_volk STATIC ${volk_SOURCE_DIR}/volk.c)
+    target_include_directories(sp2_volk PUBLIC ${volk_SOURCE_DIR})
+    target_link_libraries(sp2_volk PUBLIC Vulkan::Headers)
+    target_compile_definitions(sp2_volk PUBLIC VK_NO_PROTOTYPES
+        $<$<PLATFORM_ID:Windows>:VK_USE_PLATFORM_WIN32_KHR>)
+    if(NOT WIN32)
+        target_link_libraries(sp2_volk PUBLIC ${CMAKE_DL_LIBS})
+    endif()
+
+    target_link_libraries(nnos PRIVATE sp2_volk)
     target_compile_definitions(nnos PRIVATE NVN_BACKEND_VULKAN)
-    message(STATUS "NVN backend: Vulkan (${Vulkan_VERSION})")
+    message(STATUS "NVN backend: Vulkan (headers + volk ${SP2_VULKAN_TAG})")
 else()
     message(STATUS "NVN backend: Stub (default)")
 endif()
+
+# The runnable port: boots the reconstructed sequence, then presents frames until the
+# window is closed (Vulkan backend) or exits after the boot report (stub backend).
+add_executable(sp2port app/main.cpp)
+target_link_libraries(sp2port PRIVATE nnos)
 
 # Warnings that matter for ABI-faithful reconstruction work.
 if(MSVC)

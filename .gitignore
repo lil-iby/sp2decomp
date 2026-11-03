@@ -41,6 +41,7 @@ Thumbs.db
 
 # C++ build outputs
 build/
+build-*/
 sp2port-build/
 *.o
 *.a

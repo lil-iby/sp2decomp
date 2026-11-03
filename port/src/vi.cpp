@@ -51,13 +51,25 @@ int gInitializeCount = 0;
 // sequence can still complete.
 HWND gHwnd = nullptr;
 
+// Closing the window asks the run loop to stop: sead::Framework::run ends on WM_QUIT.
+// The window itself stays until ResetForTesting / process exit, so the swapchain's HWND
+// never dangles while frames may still be in flight.
+static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_CLOSE) {
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
 static HWND ensureHwnd() {
     if (gHwnd) return gHwnd;
     // Register the window class once per process.
     WNDCLASSEXW wc{};
     wc.cbSize        = sizeof(wc);
     wc.style         = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc   = DefWindowProcW;
+    wc.lpfnWndProc   = windowProc;
+    wc.hCursor       = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)); // IDC_ARROW
     wc.hInstance     = GetModuleHandleW(nullptr);
     wc.lpszClassName = L"sp2port";
     RegisterClassExW(&wc); // idempotent; error if already registered is harmless
