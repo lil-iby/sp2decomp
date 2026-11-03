@@ -147,7 +147,7 @@ int main() {
             if (p != nullptr) heap->free(p);
             heap->free(nullptr);
             Check(true, "free(nullptr) is safe");
-            heap->free(reinterpret_cast<void *>(0xdeadbeef));
+            heap->free(reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xdeadbeef)));
             Check(true, "freeing a pointer this heap does not own is refused, not crashed");
             heap->destroy();
             heap->destroy();

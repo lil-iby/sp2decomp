@@ -118,7 +118,7 @@ void TestTls() {
     Check(nn::os::GetTlsValue(slot) == reinterpret_cast<void *>(0x1234),
           "value round-trips on the allocating thread");
 
-    void *seenOnOtherThread = reinterpret_cast<void *>(0xdeadbeef);
+    void *seenOnOtherThread = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xdeadbeef));
     std::thread other([&] { seenOnOtherThread = nn::os::GetTlsValue(slot); });
     other.join();
     Check(seenOnOtherThread != reinterpret_cast<void *>(0x1234),

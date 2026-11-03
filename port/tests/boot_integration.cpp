@@ -180,11 +180,11 @@ void StageParallelInitPattern() {
         threads.emplace_back([i, slot, &results] {
             // Each worker records its own tick and TLS value, mirroring how the real
             // per-core init threads carry thread-local state.
-            nn::os::SetTlsValue(slot, reinterpret_cast<void *>(0x1000 + i));
+            nn::os::SetTlsValue(slot, reinterpret_cast<void *>(static_cast<std::uintptr_t>(0x1000 + i)));
             results[i].slot = slot;
             results[i].tick = nn::os::GetSystemTick();
             results[i].tlsIsolated =
-                nn::os::GetTlsValue(slot) == reinterpret_cast<void *>(0x1000 + i);
+                nn::os::GetTlsValue(slot) == reinterpret_cast<void *>(static_cast<std::uintptr_t>(0x1000 + i));
         });
     }
     for (auto &t : threads) t.join();

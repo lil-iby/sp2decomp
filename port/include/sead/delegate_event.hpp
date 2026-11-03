@@ -101,7 +101,6 @@ public:
     // Offsets: list head at +0x08 (after the vptr), count at +0x18.
     void *mVptr = nullptr; // +0x00 (DelegateEvent has a virtual destructor)
     List mList;            // +0x08
-    unsigned char mPad[0x00] = {};
 
 private:
 };

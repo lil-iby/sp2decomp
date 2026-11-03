@@ -177,6 +177,28 @@ void main_00000024(nx::CPU& c) {
 
 // ---- main ----------------------------------------------------------------
 
+// Runs the guest; returns 0 for a normal return, else the code the handlers longjmp with
+// (1 LR trap, 2 fault, 3 unimplemented). Leaving the guest by longjmp skips destructors in
+// guest frames on purpose: a faulted guest has nothing worth unwinding. MSVC flags that as
+// C4611; this frame owns no destructible objects, so the warning is silenced here only.
+static int run_guest(nx::CPU &c) {
+    int r;
+#if defined(_WIN32)
+#  if defined(_MSC_VER)
+#    pragma warning(push)
+#    pragma warning(disable : 4611)
+#  endif
+    r = setjmp(g_env);
+#  if defined(_MSC_VER)
+#    pragma warning(pop)
+#  endif
+#else
+    r = sigsetjmp(g_env, 1);
+#endif
+    if (r == 0) main_00000024(c);
+    return r;
+}
+
 int main() {
     std::puts("=== sp2decomp execution harness ===\n");
 
@@ -200,15 +222,9 @@ int main() {
     std::printf("calling main_00000024 ...\n\n");
     std::fflush(stdout);
 
-    int r;
-#if defined(_WIN32)
-    r = setjmp(g_env);
-#else
-    r = sigsetjmp(g_env, 1);
-#endif
+    const int r = run_guest(c);
 
     if (r == 0) {
-        main_00000024(c);
         std::puts("    guest function returned normally (C++ return for `ret`)");
     } else if (r == 1) {
         std::puts("    GUEST RETURNED via the LR trap");
