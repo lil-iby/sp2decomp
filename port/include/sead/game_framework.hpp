@@ -12,14 +12,14 @@
 //       Heap* res = ExpHeap::create(sz, {"sead::ResourceMgr"}, sys, 8, 1, 0);
 //       if (res) prev = HeapMgr::setCurrentHeap_(res);
 //       ResourceMgr::createInstance(res);
-//       res->destroy(res);                                           // vptr+0x28
+//       res->adjust(res);                                            // vptr+0x28
 //       if (prev != 1) HeapMgr::setCurrentHeap_(prev);
 //
 //       sz = sys->getMaxAllocatableSize(sys, 8);
 //       Heap* fdev = ExpHeap::create(sz, {"sead::FileDeviceMgr"}, sys, 8, 1, 0);
 //       if (fdev) prev2 = HeapMgr::setCurrentHeap_(fdev);
 //       FileDeviceMgr::createInstance(fdev);
-//       fdev->destroy(fdev);
+//       fdev->adjust(fdev);
 //       if (prev2 != 1) HeapMgr::setCurrentHeap_(prev2);
 //       ... further managers follow the same shape ...
 //   }
@@ -29,6 +29,7 @@
 // that allocates during construction lands in its own heap.
 #pragma once
 
+#include "sead/file_device.hpp" // sead::FileDeviceMgr, the second manager created here
 #include "sead/framework_args.hpp"
 
 namespace sead {
@@ -40,17 +41,6 @@ class ResourceMgr {
 public:
     static ResourceMgr *createInstance(Heap *heap);
     static ResourceMgr *instance();
-    Heap *heap() const { return mHeap; }
-
-private:
-    Heap *mHeap = nullptr;
-};
-
-// sead::FileDeviceMgr — same shape.
-class FileDeviceMgr {
-public:
-    static FileDeviceMgr *createInstance(Heap *heap);
-    static FileDeviceMgr *instance();
     Heap *heap() const { return mHeap; }
 
 private:

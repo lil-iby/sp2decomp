@@ -11,7 +11,6 @@ namespace {
 Heap *gSystemManagersHeap = nullptr;
 
 ResourceMgr gResourceMgr;
-FileDeviceMgr gFileDeviceMgr;
 
 // One iteration of the pattern the decompiled body repeats. Kept as a helper so the shared
 // shape is visible in one place rather than transcribed four times -- the four transcriptions
@@ -58,7 +57,9 @@ void GameFramework::initialize(const InitializeArg &arg) {
         if (res != nullptr) {
             Heap *prev = HeapMgr::instance()->setCurrentHeap_(res);
             ResourceMgr::createInstance(res);
-            res->destroy(); // NOT deleted: the binary's heaps are arena-resident and boot-lifetime
+            // Slot +0x28 is adjust (shrink to what was used), not destroy (+0x20): destroy
+            // would free the manager's allocations right after creating them.
+            res->adjust();
             if (prev != reinterpret_cast<Heap *>(1)) HeapMgr::instance()->setCurrentHeap_(prev);
         }
     }
@@ -68,8 +69,8 @@ void GameFramework::initialize(const InitializeArg &arg) {
         Heap *fdev = CreateManagerHeap(sys, "sead::FileDeviceMgr");
         if (fdev != nullptr) {
             Heap *prev = HeapMgr::instance()->setCurrentHeap_(fdev);
-            FileDeviceMgr::createInstance(fdev);
-            fdev->destroy(); // NOT deleted, same reason
+            FileDeviceMgr::createInstance(fdev); // mounts the RomFS as "content"
+            fdev->adjust();
             if (prev != reinterpret_cast<Heap *>(1)) HeapMgr::instance()->setCurrentHeap_(prev);
         }
     }
@@ -85,11 +86,5 @@ ResourceMgr *ResourceMgr::createInstance(Heap *heap) {
     return &gResourceMgr;
 }
 ResourceMgr *ResourceMgr::instance() { return &gResourceMgr; }
-
-FileDeviceMgr *FileDeviceMgr::createInstance(Heap *heap) {
-    gFileDeviceMgr.mHeap = heap;
-    return &gFileDeviceMgr;
-}
-FileDeviceMgr *FileDeviceMgr::instance() { return &gFileDeviceMgr; }
 
 } // namespace sead

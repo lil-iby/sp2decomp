@@ -51,6 +51,7 @@ add_library(nnos STATIC
   src/thread.cpp
   src/semaphore.cpp
   src/fs.cpp
+  src/file_device.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -252,5 +253,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(fs_tests tests/fs_tests.cpp)
   target_link_libraries(fs_tests PRIVATE nnos)
   add_test(NAME fs COMMAND fs_tests)
+
+  # sead::FileDeviceMgr + main/content devices (0x7100e64864 ...) over nn::fs.
+  add_executable(file_device_tests tests/file_device_tests.cpp)
+  target_link_libraries(file_device_tests PRIVATE nnos)
+  add_test(NAME file_device COMMAND file_device_tests)
 
 endif()
