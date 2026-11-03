@@ -61,17 +61,48 @@ std::atomic<std::uint32_t> g_tlsNext{0};
 TlsDestructor g_tlsDestructor[kTlsSlotCount] = {};
 
 // ---- thread handles -----------------------------------------------------
-// The game stores an opaque handle and uses it as an identity token — the observed code
-// paths never dereference it. A stable per-thread id is therefore faithful.
-thread_local std::uint32_t g_threadId = 0;
-std::atomic<std::uint32_t> g_nextThreadId{1};
-std::mutex g_threadNamesLock;
-std::map<std::uint32_t, std::string> g_threadNames;
+// Every host thread has a ThreadType whose storage points at a ThreadState, as in the
+// SDK model in tools/wsl/hle_os.cpp: GetThreadId / GetThreadPriority read it,
+// ChangeThreadPriority writes it.
+constexpr int kDefaultThreadPriority = 0x2C; // kernel default, as in hle_os.cpp
 
-std::uint32_t CurrentThreadId() {
-    if (g_threadId == 0) g_threadId = g_nextThreadId.fetch_add(1);
-    return g_threadId;
+struct ThreadState {
+    ThreadFunction function = nullptr; // null for an adopted (not created) thread
+    void *argument = nullptr;
+    std::thread host;
+    std::uint64_t id = 0;
+    std::atomic<int> priority{kDefaultThreadPriority};
+    std::atomic<std::uint64_t> coreMask{0};
+};
+
+std::atomic<std::uint64_t> g_nextThreadId{1};
+std::mutex g_threadNamesLock;
+std::map<std::uint64_t, std::string> g_threadNames;
+
+ThreadState *&ThreadStateOf(ThreadType *t) {
+    static_assert(sizeof(ThreadState *) <= sizeof(ThreadType::storage),
+                  "ThreadType::storage is too small for a state pointer");
+    return *reinterpret_cast<ThreadState **>(t->storage);
 }
+const ThreadState *ThreadStateOf(const ThreadType *t) {
+    return *reinterpret_cast<ThreadState *const *>(t->storage);
+}
+
+ThreadState *NewThreadState() {
+    auto *s = new ThreadState();
+    s->id = g_nextThreadId.fetch_add(1);
+    return s;
+}
+
+// The ThreadType of the calling thread when CreateThread did not make it.
+struct AdoptedThread {
+    ThreadType type{};
+    AdoptedThread() { ThreadStateOf(&type) = NewThreadState(); }
+    ~AdoptedThread() { delete ThreadStateOf(&type); }
+};
+
+// Set by StartThread's trampoline for created threads; null means "use the adopted one".
+thread_local ThreadType *tCurrentThread = nullptr;
 
 // ---- memory -------------------------------------------------------------
 // AllocateMemoryBlock observably rounds up to 2 MB at a call site
@@ -387,29 +418,37 @@ std::uint64_t GetThreadAvailableCoreMask() {
     return (1ull << usable) - 1ull;
 }
 
-void SetThreadCoreMask(ThreadType *, int, std::uint64_t) {}
-void ChangeThreadPriority(ThreadType *, int) {}
-
-std::uint32_t GetCurrentThread() { return CurrentThreadId(); }
-
-std::uint64_t GetThreadId(ThreadType *thread) {
-    // A ThreadType the game created is identified by its storage address; a null pointer
-    // means "the current thread".
-    if (thread == nullptr) return CurrentThreadId();
-    return reinterpret_cast<std::uint64_t>(thread);
+// The host scheduler ignores the mask and priority; they are recorded so reads match writes.
+void SetThreadCoreMask(ThreadType *thread, int core, std::uint64_t mask) {
+    (void)core;
+    if (thread == nullptr || ThreadStateOf(thread) == nullptr) return;
+    ThreadStateOf(thread)->coreMask = mask;
 }
 
-int GetThreadPriority(ThreadType *) {
-    // The SDK's default priority. Callers compare and restore it, so a stable value is
-    // required; they do not act on the magnitude.
-    return 0x20;
+void ChangeThreadPriority(ThreadType *thread, int priority) {
+    if (thread == nullptr || ThreadStateOf(thread) == nullptr) return;
+    ThreadStateOf(thread)->priority = priority;
+}
+
+ThreadType *GetCurrentThread() {
+    if (tCurrentThread != nullptr) return tCurrentThread;
+    thread_local AdoptedThread adopted;
+    return &adopted.type;
+}
+
+std::uint64_t GetThreadId(const ThreadType *thread) {
+    if (thread == nullptr || ThreadStateOf(thread) == nullptr) return 0;
+    return ThreadStateOf(thread)->id;
+}
+
+int GetThreadPriority(const ThreadType *thread) {
+    if (thread == nullptr || ThreadStateOf(thread) == nullptr) return kDefaultThreadPriority;
+    return ThreadStateOf(thread)->priority;
 }
 
 void SetThreadName(ThreadType *thread, const char *name) {
-    if (name == nullptr) return;
-    const std::uint32_t id = thread == nullptr ? CurrentThreadId()
-                                               : static_cast<std::uint32_t>(
-                                                     reinterpret_cast<std::uintptr_t>(thread));
+    const std::uint64_t id = GetThreadId(thread);
+    if (name == nullptr || id == 0) return;
     std::lock_guard<std::mutex> g(g_threadNamesLock);
     g_threadNames[id] = name;
 }
@@ -437,30 +476,16 @@ void GetCurrentStackInfo(std::uintptr_t *outBase, std::uintptr_t *outSize) {
 }
 
 // --- threads --------------------------------------------------------------------------------
-namespace {
-struct ThreadState {
-    ThreadFunction function = nullptr;
-    void *argument = nullptr;
-    std::thread host;
-};
-
-ThreadState *&ThreadStateOf(ThreadType *t) {
-    static_assert(sizeof(ThreadState *) <= sizeof(ThreadType::storage),
-                  "ThreadType::storage is too small for a state pointer");
-    return *reinterpret_cast<ThreadState **>(t->storage);
-}
-} // namespace
-
 int CreateThread(ThreadType *thread, ThreadFunction function, void *argument, void *stack,
                  std::size_t stackSize, int priority) {
     (void)stack;
     (void)stackSize;
-    (void)priority;
     if (thread == nullptr || function == nullptr) return -1;
     std::memset(thread->storage, 0, sizeof(thread->storage));
-    auto *s = new ThreadState();
+    ThreadState *s = NewThreadState();
     s->function = function;
     s->argument = argument;
+    s->priority = priority;
     ThreadStateOf(thread) = s;
     return 0;
 }
@@ -468,8 +493,11 @@ int CreateThread(ThreadType *thread, ThreadFunction function, void *argument, vo
 void StartThread(ThreadType *thread) {
     if (thread == nullptr) return;
     ThreadState *s = ThreadStateOf(thread);
-    if (s == nullptr || s->host.joinable()) return;
-    s->host = std::thread(s->function, s->argument);
+    if (s == nullptr || s->function == nullptr || s->host.joinable()) return;
+    s->host = std::thread([thread, s] {
+        tCurrentThread = thread; // so GetCurrentThread() on this thread returns its ThreadType
+        s->function(s->argument);
+    });
 }
 
 void WaitThread(ThreadType *thread) {
@@ -480,8 +508,9 @@ void WaitThread(ThreadType *thread) {
 
 void DestroyThread(ThreadType *thread) {
     if (thread == nullptr) return;
-    WaitThread(thread);
     ThreadState *&s = ThreadStateOf(thread);
+    if (s == nullptr || s->function == nullptr) return; // adopted: owned by its host thread
+    WaitThread(thread);
     delete s;
     s = nullptr;
 }

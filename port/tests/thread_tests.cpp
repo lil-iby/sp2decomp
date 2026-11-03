@@ -31,12 +31,14 @@ public:
     std::atomic<long long> sum{0};
     std::atomic<int> calls{0};
     std::atomic<sead::Thread *> seenCurrent{nullptr};
+    std::atomic<std::uint64_t> seenOsId{0};
 
 protected:
     void calc_(sead::MessageQueue::Element msg) override {
         sum += msg;
         ++calls;
         seenCurrent = sead::ThreadMgr::instance()->getCurrentThread();
+        seenOsId = nn::os::GetThreadId(nn::os::GetCurrentThread());
     }
 };
 } // namespace
@@ -89,6 +91,8 @@ static void test_thread_runs_messages() {
         Check(t.getState() == sead::Thread::State::cReleased, "Released after waitDone");
         Check(t.isDone(), "isDone()");
         Check(t.seenCurrent.load() == &t, "getCurrentThread() inside calc_ is the thread");
+        Check(t.seenOsId.load() != 0 && t.seenOsId.load() == t.getId(),
+              "nn::os::GetCurrentThread() inside calc_ is the thread's own ThreadType");
     }
     Check(sead::ThreadMgr::instance()->threadCount() == baseCount, "unregistered on destruction");
     Check(sead::ThreadMgr::instance()->getCurrentThread() == nullptr,
@@ -155,6 +159,10 @@ static void test_main_thread() {
     Check(mgr->isMainThread(), "isMainThread() on the calling thread");
     Check(std::string(mainThread->getName()) == "sead::MainThread", "named sead::MainThread");
     Check(mainThread->getState() == sead::Thread::State::cRunning, "already Running");
+    Check(mainThread->getId() == nn::os::GetThreadId(nn::os::GetCurrentThread()),
+          "its id is the calling thread's nn::os id");
+    Check(mainThread->getPriority() == sead::Thread::cDefaultPriority,
+          "initMainThread_ set the calling thread's priority to 16");
     Check(mainThread->getBlockType() == BT::NonBlocking, "non-blocking message queue");
     Check(mgr->threadCount() == listBefore, "not counted among created threads");
 

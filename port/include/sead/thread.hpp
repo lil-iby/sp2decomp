@@ -80,8 +80,8 @@ public:
     static void sleep(TickSpan howLong);
 
 protected:
-    // Main-thread form: adopts an already running thread (`inner`, null = the calling
-    // thread) instead of creating one, and is not added to ThreadMgr's list.
+    // Main-thread form: adopts an already running thread (`inner`, from
+    // nn::os::GetCurrentThread) instead of creating one, and is not added to ThreadMgr's list.
     Thread(Heap *heap, nn::os::ThreadType *inner, std::uint64_t id);
 
     virtual void run_();

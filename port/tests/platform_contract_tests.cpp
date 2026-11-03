@@ -179,15 +179,30 @@ void TestMemory() {
 void TestThreadQueries() {
     std::printf("Thread queries (GetThreadId, GetThreadPriority, SetThreadName, GetCurrentStackInfo)\n");
 
-    const std::uint32_t id = nn::os::GetCurrentThread();
-    Check(nn::os::GetThreadId(nullptr) == id,
-          "GetThreadId(nullptr) reports the current thread");
-    Check(nn::os::GetCurrentThread() == id, "current thread id is stable");
+    nn::os::ThreadType *self = nn::os::GetCurrentThread();
+    const std::uint64_t id = nn::os::GetThreadId(self);
+    Check(id != 0, "GetThreadId(GetCurrentThread()) is a non-zero id");
+    Check(nn::os::GetCurrentThread() == self && nn::os::GetThreadId(self) == id,
+          "the current ThreadType and its id are stable");
+    Check(nn::os::GetThreadId(nullptr) == 0, "GetThreadId(nullptr) is 0, not a real thread");
 
-    const int prio = nn::os::GetThreadPriority(nullptr);
+    std::uint64_t otherId = 0;
+    nn::os::ThreadType *otherType = nullptr;
+    std::thread other([&] {
+        otherType = nn::os::GetCurrentThread();
+        otherId = nn::os::GetThreadId(otherType);
+    });
+    other.join();
+    Check(otherType != self && otherId != 0 && otherId != id,
+          "another host thread gets its own ThreadType and id");
+
+    const int prio = nn::os::GetThreadPriority(self);
     Check(prio > 0, "GetThreadPriority returns a positive SDK-range priority");
+    nn::os::ChangeThreadPriority(self, 16);
+    Check(nn::os::GetThreadPriority(self) == 16, "ChangeThreadPriority is read back");
+    nn::os::ChangeThreadPriority(self, prio);
 
-    nn::os::SetThreadName(nullptr, "sp2-main");
+    nn::os::SetThreadName(self, "sp2-main");
     Check(true, "SetThreadName accepts the current thread");
 
     std::uintptr_t base = 0, size = 0;
@@ -342,8 +357,8 @@ void TestCoreQueries() {
     Check(core < 64 && ((mask >> core) & 1ull) != 0,
           "current core index lies inside the available mask");
 
-    const std::uint32_t t0 = nn::os::GetCurrentThread();
-    Check(t0 != 0, "GetCurrentThread returns a non-null handle");
+    nn::os::ThreadType *t0 = nn::os::GetCurrentThread();
+    Check(t0 != nullptr, "GetCurrentThread returns a non-null handle");
     Check(nn::os::GetCurrentThread() == t0, "and is stable within a thread");
 }
 

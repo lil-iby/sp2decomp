@@ -190,9 +190,13 @@ std::uint64_t GetThreadAvailableCoreMask();
 // core == -1 means "any core in mask".
 void SetThreadCoreMask(ThreadType *thread, int core, std::uint64_t mask);
 void ChangeThreadPriority(ThreadType *thread, int priority);
-std::uint32_t GetCurrentThread();
-std::uint64_t GetThreadId(ThreadType *thread);
-int GetThreadPriority(ThreadType *thread);
+// The calling thread's ThreadType: the one given to CreateThread for threads created here,
+// otherwise one adopted for the host thread on first use (e.g. the main thread). Stable for
+// the thread's lifetime. Signatures follow the SDK as recorded in tools/wsl/hle_os.cpp.
+ThreadType *GetCurrentThread();
+// A non-zero id unique to the thread; 0 for null.
+std::uint64_t GetThreadId(const ThreadType *thread);
+int GetThreadPriority(const ThreadType *thread);
 void SetThreadName(ThreadType *thread, const char *name);
 // `nn::os::GetCurrentStackInfo((ulong *)&local_38, (ulong *)local_48);` — two OUT params.
 void GetCurrentStackInfo(std::uintptr_t *outBase, std::uintptr_t *outSize);

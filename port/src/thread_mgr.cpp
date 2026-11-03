@@ -24,19 +24,18 @@ void ThreadMgr::setCurrentThread_(Thread *thread) {
     if (gThreadMgr.mHasTLS) nn::os::SetTlsValue(gThreadMgr.mThreadPtrTLS, thread);
 }
 
-// 0x7100e996b8. The port passes a null ThreadType for "the calling thread": its
-// nn::os::GetCurrentThread returns an id, not a ThreadType*, and every nn::os thread query
-// treats null as the current thread.
+// 0x7100e996b8 — adopts the calling thread's nn::os ThreadType as the MainThread.
 void ThreadMgr::initMainThread_(Heap *heap) {
     destroyMainThread_();
     if (heap == nullptr) return;
 
-    nn::os::ChangeThreadPriority(nullptr, Thread::cDefaultPriority);
-    const std::uint64_t id = nn::os::GetThreadId(nullptr);
+    nn::os::ThreadType *self = nn::os::GetCurrentThread();
+    nn::os::ChangeThreadPriority(self, Thread::cDefaultPriority);
+    const std::uint64_t id = nn::os::GetThreadId(self);
 
     void *mem = heap->tryAlloc(sizeof(MainThread), alignof(MainThread));
     if (mem == nullptr) return;
-    mMainThread = new (mem) MainThread(heap, nullptr, id);
+    mMainThread = new (mem) MainThread(heap, self, id);
     mMainThreadHeap = heap;
     setCurrentThread_(mMainThread);
 }
