@@ -34,7 +34,7 @@ jobs:
 
       - name: Run tests
         working-directory: build
-        run: ctest -C RelWithDebInfo --output-on-failure --timeout 60
+        run: ctest -C RelWithDebInfo --output-on-failure --timeout 60 --no-tests=error
 
       - name: Collect executables
         if: startsWith(github.ref, 'refs/tags/v')

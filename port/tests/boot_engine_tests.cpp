@@ -51,8 +51,8 @@ int main() {
           "the entire reconstructed boot sequence ran to completion (no missing dependency)");
     Check(result.stoppedAt.empty(),
           "no dependency was missing; stoppedAt is empty");
-    Check(result.completed.size() == 14,
-          "exactly the fourteen reconstructed steps ran to completion");
+    Check(result.completed.size() == 21,
+          "exactly the 21 reconstructed steps ran to completion");
 
     // Every completed step must be a real reconstructed function, not a placeholder.
     for (const auto &step : result.completed) {

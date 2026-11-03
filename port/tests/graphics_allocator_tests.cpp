@@ -105,10 +105,11 @@ int main() {
         nn::mem::StandardAllocator alloc;
         void *a = alloc.Allocate(0x200, 16);
         Check(a != nullptr, "Allocate returns memory");
-        const auto *bytes = static_cast<const unsigned char *>(a);
-        bool zeroed = true;
-        for (int i = 0; i < 32; ++i) if (bytes[i] != 0) zeroed = false;
-        Check(zeroed, "fresh memory is zero-filled");
+        // Like malloc, the SDK allocator promises nothing about fresh contents; a zero-fill
+        // check only passed when the OS happened to hand back new pages.
+        auto *bytes = static_cast<unsigned char *>(a);
+        for (int i = 0; i < 0x200; ++i) bytes[i] = static_cast<unsigned char>(i);
+        Check(bytes[0] == 0 && bytes[0x1FF] == 0xFF, "the whole block is writable");
         Check((reinterpret_cast<std::uintptr_t>(a) % 16) == 0, "the alignment is honoured");
         alloc.Free(a);
         Check(true, "Free completes (the platform layer's method name, not Deallocate)");

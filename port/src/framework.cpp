@@ -81,7 +81,8 @@ void Framework::run(const RunArg &arg) {
     (void)arg; // prepare_stack_size / prepare_priority drive the task-manager thread setup
                // (WorkerThreadMgr); not yet ported — will wire in once WorkerThreadMgr lands.
 
-    gStopRequested.store(false, std::memory_order_relaxed);
+    // A stop requested before run() is honoured (zero frames); the flag is cleared on exit
+    // instead, so the next run() starts fresh.
     int frameCount = 0;
     const int limit = gFrameLimit.load(std::memory_order_relaxed);
 
@@ -109,6 +110,7 @@ void Framework::run(const RunArg &arg) {
         ++frameCount;
     }
 
+    gStopRequested.store(false, std::memory_order_relaxed);
     std::printf("sead::Framework::run: completed %d frame(s)\n", frameCount);
 }
 

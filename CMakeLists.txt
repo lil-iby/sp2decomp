@@ -11,5 +11,9 @@ project(sp2decomp LANGUAGES CXX)
 #   sp2harness   (executable)   — cross-platform guest-function execution bed
 #   *_tests      (executables)  — port/ unit/integration tests
 
+# Must precede add_subdirectory: without it the tests port/ registers are invisible to a
+# ctest run from the build root, which then reports "No tests were found" and exits 0.
+enable_testing()
+
 add_subdirectory(port)
 add_subdirectory(harness)

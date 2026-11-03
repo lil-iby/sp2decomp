@@ -138,6 +138,9 @@ bool TimedWaitLightEvent(LightEventType *event, std::int64_t timeoutNs);
 // pointer for the allocation, the second a byte size (observably rounded up to 2 MB).
 // Returns a result code that callers test.
 int AllocateMemoryBlock(std::uint64_t *outAddress, std::uint64_t size);
+// Releases a block from AllocateMemoryBlock. The host block is an aligned allocation, so
+// std::free on it is wrong (heap corruption on Windows); always come through here.
+void FreeMemoryBlock(std::uint64_t address, std::uint64_t size);
 // `nn::os::QueryMemoryInfo((MemoryInfo *)&local_58);`
 void QueryMemoryInfo(MemoryInfo *out);
 // `nn::os::SetMemoryHeapSize(uVar1);`

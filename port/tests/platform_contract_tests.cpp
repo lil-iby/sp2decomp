@@ -153,7 +153,7 @@ void TestMemory() {
         // Must be usable and zero-filled: callers treat it as fresh heap.
         auto *p = reinterpret_cast<volatile std::uint64_t *>(addr);
         Check(p[0] == 0 && p[4096 / 8] == 0, "the block is zero-filled and writable");
-        std::free(reinterpret_cast<void *>(addr));
+        nn::os::FreeMemoryBlock(addr, 0x2000000);
     }
 
     std::uint64_t none = 0xFFFF;

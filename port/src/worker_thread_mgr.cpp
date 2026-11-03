@@ -32,8 +32,7 @@ struct WorkerThreadMgr::Impl {
     };
 
     // Runs on the worker thread for every message it receives.
-    void onMessage(sead::Thread *thread, Element msg) {
-        (void)thread;
+    void onMessage(sead::Thread * /*sender*/, Element msg) {
         if (msg != kRunMsg) return;
         int ran = 0;
         while (true) {

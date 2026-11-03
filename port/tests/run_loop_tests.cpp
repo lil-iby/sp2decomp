@@ -116,7 +116,7 @@ static void test_run_is_reentrant() {
 
     const auto stats = nvn::bridge::GetStats();
     Check(stats.framesRendered == 4,
-          "second run renders exactly 4 frames (gStopRequested reset at entry)");
+          "second run renders exactly 4 frames (each run starts fresh)");
 
     sead::Framework::setFrameLimit(-1);
     nn::vi::ResetForTesting();

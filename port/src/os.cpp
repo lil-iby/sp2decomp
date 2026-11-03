@@ -170,6 +170,16 @@ int AllocateMemoryBlock(std::uint64_t *outAddress, std::uint64_t size) {
     return 0;
 }
 
+void FreeMemoryBlock(std::uint64_t address, std::uint64_t size) {
+    (void)size;
+    if (address == 0) return;
+#if defined(_WIN32)
+    _aligned_free(reinterpret_cast<void *>(address));
+#else
+    std::free(reinterpret_cast<void *>(address));
+#endif
+}
+
 void QueryMemoryInfo(MemoryInfo *out) {
     if (out == nullptr) return;
     // Used during boot to size heaps and print the "%4ld MB: Program" diagnostics seen
