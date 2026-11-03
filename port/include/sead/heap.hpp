@@ -18,6 +18,7 @@
 // path calls sead:: (see HEAP_LAYER_SCOPE.md §1), so this is sead::.
 #pragma once
 
+#include "sead/i_disposer.hpp"
 #include "sead/list_node.hpp"
 #include "sead/lock.hpp"
 
@@ -27,7 +28,6 @@
 namespace sead {
 
 class Heap;
-class IDisposer;  // forward declaration — full type in sead/i_disposer.hpp
 class WriteStream;
 namespace hostio {
 class Context;
@@ -44,10 +44,19 @@ struct HeapCreateArg {
 
 // sead::Heap — the base class. The vtable below mirrors the 27 entries enumerated in
 // HEAP_INTERFACE.md, with the boot-path ones marked.
-class Heap {
+// sead::Heap is itself an IDisposer: the binary's Heap ctor (0x7100e7ada8) opens with
+//   IDisposer::IDisposer((IDisposer *)this, param_2, 1);
+// so a child heap registers in its parent's disposer list. A root heap has no parent and
+// registers nowhere.
+class Heap : public IDisposer {
 public:
-    Heap() = default;
-    virtual ~Heap() = default;
+    explicit Heap(Heap *parent = nullptr) : IDisposer(parent, 0) {}
+    // Detaches every disposer still registered here, so none is left pointing into a
+    // destroyed list. The disposers themselves are not destroyed (they are not owned).
+    ~Heap() override;
+
+    // Number of disposers currently registered. Test hook, like liveAllocationCount.
+    std::size_t disposerCount() const { return mDisposerList.size(); }
 
     // --- RTTI (vptr+0x10, +0x18) -------------------------------------------------
     virtual bool checkDerivedRuntimeTypeInfo(const void *typeInfo) const { (void)typeInfo; return false; }
@@ -136,6 +145,8 @@ protected:
 class ExpHeap : public Heap {
 public:
     static constexpr int kMaxTracked = 4096;
+
+    explicit ExpHeap(Heap *parent = nullptr) : Heap(parent) {}
 
     // ExpHeap::create @ 0x7100e76784. The binary's signature is
     //   create(size, name, parent, alignment, direction, enableLock)

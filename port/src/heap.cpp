@@ -36,11 +36,10 @@ std::size_t NormaliseAlign(std::size_t a) {
 
 ExpHeap *ExpHeap::create(std::size_t size, const char *name, Heap *parent, int alignment,
                          HeapDirection direction, bool enableLock) {
-    (void)parent;
     (void)alignment;
     (void)direction;
     (void)enableLock;
-    auto *h = new (std::nothrow) ExpHeap();
+    auto *h = new (std::nothrow) ExpHeap(parent);
     if (h == nullptr) return nullptr;
     // The heap's "extent" is the requested size: the game treats it as the budget, and the
     // host allocator backs the actual bytes. mBuffer stays null, so blocks come from the host.
@@ -58,10 +57,9 @@ ExpHeap *ExpHeap::tryCreate(std::size_t size, const char *name, Heap *parent, in
 
 ExpHeap *ExpHeap::create(void *buffer, std::size_t size, const char *name, Heap *parent,
                          bool enableLock) {
-    (void)parent;
     (void)enableLock;
     if (buffer == nullptr || size == 0) return nullptr;
-    auto *h = new (std::nothrow) ExpHeap();
+    auto *h = new (std::nothrow) ExpHeap(parent);
     if (h == nullptr) return nullptr;
     if (!h->init(size, name, buffer)) {
         delete h;
@@ -192,6 +190,12 @@ void Heap::appendDisposer_(IDisposer *disposer) {
     if (disposer == nullptr) return;
     mCS.lock();
     mDisposerList.pushBack(&disposer->mDisposerListNode);
+    mCS.unlock();
+}
+
+Heap::~Heap() {
+    mCS.lock();
+    while (!mDisposerList.empty()) mDisposerList.root()->next()->erase_();
     mCS.unlock();
 }
 

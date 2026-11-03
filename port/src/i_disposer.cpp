@@ -37,13 +37,13 @@ IDisposer::IDisposer(Heap *heap, unsigned int heapNullOption)
 }
 
 // Virtual destructor: unlink from heap's disposer list if we were ever linked.
+// An unlinked node means the heap was destroyed first and already detached us, so
+// mDisposerHeap may be dangling and must not be dereferenced.
 IDisposer::~IDisposer() {
-    if (mDisposerHeap != nullptr) {
+    if (mDisposerHeap != nullptr && mDisposerListNode.isLinked()) {
         mDisposerHeap->removeDisposer_(this);
-        mDisposerHeap = nullptr;
-    } else if (mDisposerListNode.isLinked()) {
-        mDisposerListNode.erase_();
     }
+    mDisposerHeap = nullptr;
 }
 
 } // namespace sead

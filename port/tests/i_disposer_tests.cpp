@@ -125,6 +125,84 @@ static void test_virtual_dtor() {
 }
 
 // ---------------------------------------------------------------------------
+// Test 8 — construction links the node into the heap's list; destruction unlinks it
+// ---------------------------------------------------------------------------
+static void test_registration_roundtrip() {
+    std::printf("\n[8] appendDisposer_ / removeDisposer_ round-trip\n");
+    HeapFixture fix;
+    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
+    const std::size_t before = root->disposerCount();
+    {
+        sead::IDisposer a(root, 1);
+        Check(a.disposerListNode().isLinked(), "node is linked after construction");
+        Check(root->disposerCount() == before + 1, "heap count +1 after one disposer");
+        {
+            sead::IDisposer b(root, 1);
+            Check(root->disposerCount() == before + 2, "heap count +2 after two disposers");
+        }
+        Check(root->disposerCount() == before + 1, "inner disposer removed itself");
+        Check(a.disposerListNode().isLinked(), "outer node still linked after inner removed");
+    }
+    Check(root->disposerCount() == before, "heap count back to baseline");
+}
+
+// ---------------------------------------------------------------------------
+// Test 9 — option 0 with null heap registers nowhere
+// ---------------------------------------------------------------------------
+static void test_no_registration_without_heap() {
+    std::printf("\n[9] IDisposer(nullptr, 0) — not linked anywhere\n");
+    HeapFixture fix;
+    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
+    const std::size_t before = root->disposerCount();
+    {
+        sead::IDisposer obj(nullptr, 0);
+        Check(!obj.disposerListNode().isLinked(), "node is not linked");
+        Check(root->disposerCount() == before, "root count unchanged");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 10 — Heap is an IDisposer: a child heap registers with its parent
+// ---------------------------------------------------------------------------
+static void test_child_heap_registers_with_parent() {
+    std::printf("\n[10] child heap registers in parent's disposer list\n");
+    HeapFixture fix;
+    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
+    Check(root->getDisposerHeap() == nullptr, "root heap has no parent registration");
+
+    const std::size_t before = root->disposerCount();
+    sead::ExpHeap *child = sead::ExpHeap::create(1024, "child", root);
+    Check(child != nullptr, "child heap created");
+    if (child == nullptr) return;
+    Check(child->getDisposerHeap() == root, "child's disposer heap is the parent");
+    Check(root->disposerCount() == before + 1, "parent count +1");
+
+    child->destroy();
+    delete child;
+    Check(root->disposerCount() == before, "deleting the child unregisters it");
+}
+
+// ---------------------------------------------------------------------------
+// Test 11 — parent destroyed first: the child is detached, and deleting it later is safe
+// ---------------------------------------------------------------------------
+static void test_parent_destroyed_first() {
+    std::printf("\n[11] parent heap destroyed before its child\n");
+    sead::ExpHeap *parent = sead::ExpHeap::create(4096, "parent");
+    sead::ExpHeap *child = sead::ExpHeap::create(1024, "child", parent);
+    Check(parent != nullptr && child != nullptr, "both heaps created");
+    if (parent == nullptr || child == nullptr) return;
+    Check(parent->disposerCount() == 1, "parent holds one disposer");
+
+    parent->destroy();
+    delete parent;
+    Check(!child->disposerListNode().isLinked(), "child detached when parent died");
+
+    child->destroy();
+    delete child; // must not touch the dead parent
+    Check(true, "deleting the orphaned child did not crash");
+}
+
+// ---------------------------------------------------------------------------
 int main() {
     std::printf("sead::IDisposer tests\n");
     std::printf("(0x7100e764f0 / 0x7100e76550)\n");
@@ -136,6 +214,10 @@ int main() {
     test_null_heap_option1();
     test_null_heap_option0();
     test_virtual_dtor();
+    test_registration_roundtrip();
+    test_no_registration_without_heap();
+    test_child_heap_registers_with_parent();
+    test_parent_destroyed_first();
 
     std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
