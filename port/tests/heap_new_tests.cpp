@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 namespace {
 int g_failures = 0, g_checks = 0;
@@ -145,6 +146,86 @@ static void test_placement_delete() {
 }
 
 // ---------------------------------------------------------------------------
+// Test 7 — blocks from a grandchild heap are found and delete[] returns them there
+// ---------------------------------------------------------------------------
+static void test_child_heap_lookup() {
+    std::printf("\n[7] findContainHeap / delete[] through child heaps\n");
+
+    HeapFixture fix;
+    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
+    sead::ExpHeap *child = sead::ExpHeap::create(0x10000, "child", root);
+    sead::ExpHeap *grandchild = sead::ExpHeap::create(0x1000, "grandchild", child);
+    Check(child != nullptr && grandchild != nullptr, "child and grandchild heaps created");
+    if (child == nullptr || grandchild == nullptr) return;
+
+    Check(child->getParent() == root && grandchild->getParent() == child, "parents recorded");
+    Check(root->childCount() == 1 && child->childCount() == 1, "children recorded");
+
+    void *arr = operator new[](64, grandchild, 8);
+    Check(sead::HeapMgr::findContainHeap(arr) == grandchild,
+          "a grandchild's block is found in the grandchild, not missed");
+
+    operator delete[](arr); // previously fell back to std::free on _aligned_malloc memory
+    Check(grandchild->liveAllocationCount() == 0, "delete[] returned the block to the grandchild");
+
+    grandchild->destroy();
+    delete grandchild;
+    Check(child->childCount() == 0, "a deleted child leaves its parent's list");
+    child->destroy();
+    delete child;
+}
+
+// ---------------------------------------------------------------------------
+// Test 8 — an address inside a block (not its start) belongs to the heap
+// ---------------------------------------------------------------------------
+static void test_interior_pointer() {
+    std::printf("\n[8] interior pointer\n");
+
+    HeapFixture fix;
+    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
+    auto *p = static_cast<unsigned char *>(operator new(64, root, 8));
+    Check(sead::HeapMgr::findContainHeap(p + 10) == root, "ptr + 10 is inside the root heap");
+    Check(sead::HeapMgr::findContainHeap(p + 64) != root, "one past the end is not");
+    root->free(p);
+}
+
+// ---------------------------------------------------------------------------
+// Test 9 — a parent deleted before its child orphans the child safely
+// ---------------------------------------------------------------------------
+static void test_parent_deleted_first() {
+    std::printf("\n[9] parent heap deleted before its child\n");
+
+    sead::ExpHeap *parent = sead::ExpHeap::create(0x1000, "parent");
+    sead::ExpHeap *child = sead::ExpHeap::create(0x100, "child", parent);
+    if (parent == nullptr || child == nullptr) { Check(false, "heaps created"); return; }
+
+    parent->destroy();
+    delete parent;
+    Check(child->getParent() == nullptr, "child no longer points at the dead parent");
+    child->destroy();
+    delete child;
+    Check(true, "deleting the orphan did not touch the dead parent");
+}
+
+// ---------------------------------------------------------------------------
+// Test 10 — freeAll unlinks disposers living in the freed blocks
+// ---------------------------------------------------------------------------
+static void test_free_all_unlinks_disposers() {
+    std::printf("\n[10] freeAll with a registered disposer inside the heap\n");
+
+    HeapFixture fix;
+    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
+    const std::size_t before = root->disposerCount();
+
+    void *mem = operator new(sizeof(sead::IDisposer), root, 8);
+    new (mem) sead::IDisposer(); // contain-heap lookup registers it with root
+    Check(root->disposerCount() == before + 1, "the in-heap disposer registered with root");
+
+    root->freeAll(); // frees the block without running the destructor
+    Check(root->disposerCount() == before, "freeAll unlinked it before releasing the memory");
+}
+
+// ---------------------------------------------------------------------------
 int main() {
     std::printf("sead heap operator new/delete[] tests\n");
     std::printf("(_ZnwmPN4sead4HeapEi / _ZnamPN4sead4HeapEi / _ZdaPv)\n");
@@ -155,6 +236,10 @@ int main() {
     test_find_contain_heap();
     test_operator_delete_array_sead();
     test_placement_delete();
+    test_child_heap_lookup();
+    test_interior_pointer();
+    test_parent_deleted_first();
+    test_free_all_unlinks_disposers();
 
     std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

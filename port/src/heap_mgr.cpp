@@ -77,7 +77,8 @@ Heap *HeapMgr::findContainHeap(const void *ptr) {
     const int n = gInstance.mRootHeapNum;
     for (int i = 0; i < n; ++i) {
         Heap *h = gInstance.mRootHeaps[i];
-        if (h && h->isInclude(ptr)) return h;
+        Heap *found = h != nullptr ? h->findContainHeap_(ptr) : nullptr;
+        if (found != nullptr) return found;
     }
     return nullptr;
 }

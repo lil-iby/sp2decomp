@@ -47,6 +47,7 @@ ExpHeap *ExpHeap::create(std::size_t size, const char *name, Heap *parent, int a
         delete h;
         return nullptr;
     }
+    if (parent != nullptr) parent->pushBackChild_(h);
     return h;
 }
 
@@ -65,6 +66,7 @@ ExpHeap *ExpHeap::create(void *buffer, std::size_t size, const char *name, Heap 
         delete h;
         return nullptr;
     }
+    if (parent != nullptr) parent->pushBackChild_(h);
     return h;
 }
 
@@ -120,6 +122,8 @@ void ExpHeap::free(void *ptr) {
 
 void ExpHeap::freeAll() {
     for (int i = 0; i < mAllocCount; ++i) {
+        const auto start = reinterpret_cast<std::uintptr_t>(mAllocs[i].ptr);
+        unlinkDisposersIn_(start, start + mAllocs[i].size);
 #if defined(_WIN32)
         _aligned_free(mAllocs[i].ptr);
 #else
@@ -147,10 +151,14 @@ std::size_t ExpHeap::getMaxAllocatableSize(int alignment) {
     return getFreeSize();
 }
 
+// True when ptr lies anywhere inside a live block, not only at its start: sead tests an
+// address range, and an IDisposer base or a member can sit partway into an allocation.
 bool ExpHeap::isInclude(const void *ptr) const {
     if (ptr == nullptr) return false;
+    const auto p = reinterpret_cast<std::uintptr_t>(ptr);
     for (int i = 0; i < mAllocCount; ++i) {
-        if (mAllocs[i].ptr == ptr) return true;
+        const auto start = reinterpret_cast<std::uintptr_t>(mAllocs[i].ptr);
+        if (p >= start && p < start + mAllocs[i].size) return true;
     }
     return false;
 }
@@ -158,13 +166,10 @@ bool ExpHeap::isInclude(const void *ptr) const {
 bool ExpHeap::isEmpty() const { return mAllocCount == 0; }
 
 void ExpHeap::destroy() {
-    // Free every outstanding allocation and mark the heap empty -- but leave the OBJECT USABLE.
-    //
-    // This matters and was caught by a segfault: Framework::initialize calls `th->destroy(th)`
-    // on the ThreadMgr heap and the boot path then keeps using heap objects (GameFramework::
-    // initialize queries the ROOT heap's getMaxAllocatableSize right afterwards). In the
-    // binary those heaps are arena-resident and survive destroy(); an earlier version of this
-    // set a destroyed flag that made subsequent queries read torn-down state, which crashed.
+    // Free every outstanding allocation and mark the heap empty -- but leave the OBJECT USABLE:
+    // in the binary heaps are arena-resident and survive destroy(), and callers keep querying
+    // them afterwards. (The segfault that first exposed this came from Framework::initialize
+    // calling destroy where the binary calls adjust; that call is fixed, the rule still holds.)
     if (mDestroyed) return;
     freeAll();
     if (mOwnsBuffer && mBuffer != nullptr) {
@@ -194,9 +199,55 @@ void Heap::appendDisposer_(IDisposer *disposer) {
 }
 
 Heap::~Heap() {
+    if (mParent != nullptr) {
+        mParent->mCS.lock();
+        mChildNode.erase_();
+        mParent->mCS.unlock();
+        mParent = nullptr;
+    }
+
     mCS.lock();
     while (!mDisposerList.empty()) mDisposerList.root()->next()->erase_();
+    // Children outlive us (HeapMgr::destroy deletes only root heaps): orphan them.
+    while (!mChildren.empty()) {
+        auto *node = static_cast<ChildNode *>(mChildren.root()->next());
+        node->heap->mParent = nullptr;
+        node->erase_();
+    }
     mCS.unlock();
+}
+
+void Heap::unlinkDisposersIn_(std::uintptr_t start, std::uintptr_t end) {
+    mCS.lock();
+    ListNode *n = mDisposerList.root()->next();
+    while (n != mDisposerList.root()) {
+        ListNode *next = n->next();
+        const auto addr = reinterpret_cast<std::uintptr_t>(n);
+        if (addr >= start && addr < end) n->erase_();
+        n = next;
+    }
+    mCS.unlock();
+}
+
+void Heap::pushBackChild_(Heap *child) {
+    if (child == nullptr || child == this) return;
+    mCS.lock();
+    mChildren.pushBack(&child->mChildNode);
+    child->mParent = this;
+    mCS.unlock();
+}
+
+Heap *Heap::findContainHeap_(const void *ptr) {
+    if (ptr == nullptr) return nullptr;
+    Heap *found = nullptr;
+    mCS.lock();
+    for (ListNode *n = mChildren.root()->next(); n != mChildren.root(); n = n->next()) {
+        found = static_cast<ChildNode *>(n)->heap->findContainHeap_(ptr);
+        if (found != nullptr) break;
+    }
+    mCS.unlock();
+    if (found == nullptr && isInclude(ptr)) found = this;
+    return found;
 }
 
 // Symmetric remove, called by ~IDisposer().

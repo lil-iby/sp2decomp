@@ -51,7 +51,9 @@ struct HeapCreateArg {
 class Heap : public IDisposer {
 public:
     explicit Heap(Heap *parent = nullptr)
-        : IDisposer(parent, HeapNullOption::UseSpecifiedOrContainHeap) {}
+        : IDisposer(parent, HeapNullOption::UseSpecifiedOrContainHeap) {
+        mChildNode.heap = this;
+    }
     // Detaches every disposer still registered here, so none is left pointing into a
     // destroyed list. The disposers themselves are not destroyed (they are not owned).
     ~Heap() override;
@@ -107,13 +109,20 @@ public:
 
     // --- inherited from Heap, present in ExpHeap's vtable at +0xc8/+0xd0 ----------
     virtual void makeMetaString_(void *buf) const { (void)buf; }
-    virtual void pushBackChild_(Heap *child) { (void)child; }
+    // Records `child` as created inside this heap (ExpHeap::create calls it).
+    virtual void pushBackChild_(Heap *child);
 
     // Live allocations outstanding. Not part of the original's interface -- added so tests
     // can verify accounting through a base pointer without downcasting.
     virtual int liveAllocationCount() const { return 0; }
 
     const char *name() const { return mName; }
+
+    Heap *getParent() const { return mParent; }
+    std::size_t childCount() const { return mChildren.size(); }
+    // The most specific heap, among this one and its descendants, that holds `ptr`:
+    // children are searched first, since a child's memory also belongs to its parent.
+    Heap *findContainHeap_(const void *ptr);
 
     // --- disposer-list management (0x7100e7b29c, 120B) ---------------------------
     // Called by IDisposer's constructor to register `disposer` with this heap.
@@ -130,13 +139,27 @@ public:
     void removeDisposer_(IDisposer *disposer);
 
 protected:
+    // Unlinks registered disposers whose list node lies in [start, end): called before that
+    // memory is released, so the list never points into freed memory.
+    void unlinkDisposersIn_(std::uintptr_t start, std::uintptr_t end);
+
     const char *mName = nullptr;
     std::uintptr_t mStartAddress = 0;
     std::size_t mSize = 0;
 
     // Added to support disposer-list registration (appendDisposer_ / removeDisposer_).
-    CriticalSection mCS;          // thread safety for disposer list mutations
+    CriticalSection mCS;          // guards mDisposerList and mChildren
     List            mDisposerList; // sentinel-head list of IDisposer nodes
+
+private:
+    // A list node that knows which heap it belongs to, for walking mChildren.
+    struct ChildNode : ListNode {
+        Heap *heap = nullptr;
+    };
+
+    Heap     *mParent = nullptr;
+    ChildNode mChildNode;  // this heap's link in mParent->mChildren
+    List      mChildren;
 };
 
 // sead::ExpHeap — the concrete heap the game instantiates per system manager.
