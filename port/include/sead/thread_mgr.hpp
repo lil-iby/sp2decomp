@@ -11,13 +11,22 @@
 // which is not part of the boot root's 13 dependencies.
 #pragma once
 
+#include "sead/list_node.hpp"
+#include "sead/lock.hpp"
+
+#include <cstddef>
 #include <cstdint>
 
 namespace sead {
 
 class Heap;
+class Thread;
 
 // sead::ThreadMgr — created and initialised with a heap during Framework::initialize.
+//
+// Also keeps the list of live sead::Threads and which one is running on the calling host
+// thread. The main-thread object (initMainThread_) is not ported yet, so getMainThread()
+// is always null.
 class ThreadMgr {
 public:
     static ThreadMgr *createInstance(Heap *heap);
@@ -29,9 +38,22 @@ public:
     Heap *heap() const { return mHeap; }
     bool isInitialized() const { return mInitialized; }
 
+    Thread *getMainThread() const { return nullptr; }
+    // The sead::Thread whose body is running on the calling host thread, or null.
+    Thread *getCurrentThread() const;
+    std::size_t threadCount() const { return mList.size(); }
+
 private:
+    friend class Thread;
+
+    void addThread_(ListNode *node);
+    void removeThread_(ListNode *node);
+    static void setCurrentThread_(Thread *thread);
+
     Heap *mHeap = nullptr;
     bool mInitialized = false;
+    List mList;
+    CriticalSection mListCS;
 };
 
 // sead::GlobalRandom — the engine's shared RNG, created with the root heap.

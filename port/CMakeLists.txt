@@ -47,6 +47,8 @@ add_library(nnos STATIC
   src/heap_new.cpp
   src/i_disposer.cpp
   src/event.cpp
+  src/message_queue.cpp
+  src/thread.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -203,5 +205,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(event_tests tests/event_tests.cpp)
   target_link_libraries(event_tests PRIVATE nnos)
   add_test(NAME event COMMAND event_tests)
+
+  # sead::Thread (0x7100e98f50) + sead::MessageQueue over nn::os threads and queues.
+  add_executable(thread_tests tests/thread_tests.cpp)
+  target_link_libraries(thread_tests PRIVATE nnos)
+  add_test(NAME thread COMMAND thread_tests)
 
 endif()

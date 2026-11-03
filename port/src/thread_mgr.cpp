@@ -6,7 +6,26 @@ namespace sead {
 namespace {
 ThreadMgr gThreadMgr;
 GlobalRandom gGlobalRandom;
+// The binary keeps this in a ThreadLocalStorage slot (mThreadPtrTLS); thread_local is the
+// host equivalent.
+thread_local Thread *tCurrentThread = nullptr;
 } // namespace
+
+Thread *ThreadMgr::getCurrentThread() const { return tCurrentThread; }
+
+void ThreadMgr::setCurrentThread_(Thread *thread) { tCurrentThread = thread; }
+
+void ThreadMgr::addThread_(ListNode *node) {
+    mListCS.lock();
+    mList.pushBack(node);
+    mListCS.unlock();
+}
+
+void ThreadMgr::removeThread_(ListNode *node) {
+    mListCS.lock();
+    if (node->isLinked()) node->erase_();
+    mListCS.unlock();
+}
 
 ThreadMgr *ThreadMgr::createInstance(Heap *heap) {
     gThreadMgr.mHeap = heap;

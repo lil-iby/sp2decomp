@@ -166,7 +166,18 @@ void AcquireSemaphore(SemaphoreType *semaphore);
 void ReleaseSemaphore(SemaphoreType *semaphore);
 
 // `InitializeMessageQueue((MessageQueueType *)(this + 0x1f8), (ulong *)(this + 0x240), 0x20);`
+// A bounded FIFO of 64-bit values held in the caller's buffer. Send blocks while full,
+// Receive/Peek while empty; Jam inserts at the front. The Try* forms never block.
 void InitializeMessageQueue(MessageQueueType *queue, std::uint64_t *buffer, std::size_t count);
+void FinalizeMessageQueue(MessageQueueType *queue);
+void SendMessageQueue(MessageQueueType *queue, std::uint64_t message);
+bool TrySendMessageQueue(MessageQueueType *queue, std::uint64_t message);
+void JamMessageQueue(MessageQueueType *queue, std::uint64_t message);
+bool TryJamMessageQueue(MessageQueueType *queue, std::uint64_t message);
+void ReceiveMessageQueue(std::uint64_t *outMessage, MessageQueueType *queue);
+bool TryReceiveMessageQueue(std::uint64_t *outMessage, MessageQueueType *queue);
+void PeekMessageQueue(std::uint64_t *outMessage, const MessageQueueType *queue);
+bool TryPeekMessageQueue(std::uint64_t *outMessage, const MessageQueueType *queue);
 
 // ---- CPU / threads -------------------------------------------------------
 // `uVar7 = nn::os::GetCurrentCoreNumber();` — 121 call sites.
@@ -182,5 +193,16 @@ int GetThreadPriority(ThreadType *thread);
 void SetThreadName(ThreadType *thread, const char *name);
 // `nn::os::GetCurrentStackInfo((ulong *)&local_38, (ulong *)local_48);` — two OUT params.
 void GetCurrentStackInfo(std::uintptr_t *outBase, std::uintptr_t *outSize);
+
+// Called by sead::Thread. The thread is created suspended and runs `function(argument)`
+// once StartThread is called. The caller's stack buffer is accepted but not used: the
+// host thread owns its own stack.
+using ThreadFunction = void (*)(void *);
+int CreateThread(ThreadType *thread, ThreadFunction function, void *argument, void *stack,
+                 std::size_t stackSize, int priority);
+void StartThread(ThreadType *thread);
+void WaitThread(ThreadType *thread);
+void DestroyThread(ThreadType *thread);
+void YieldThread();
 
 } // namespace nn::os

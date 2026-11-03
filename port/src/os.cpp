@@ -268,11 +268,97 @@ void ReleaseSemaphore(SemaphoreType *semaphore) {
     s->state->cv.notify_one();
 }
 
+// --- message queues -------------------------------------------------------------------------
+// A ring buffer over the caller's storage. Host sync state lives behind a pointer in
+// MessageQueueType::storage, like the other primitives here.
+namespace {
+struct MessageQueueState {
+    std::mutex m;
+    std::condition_variable notEmpty;
+    std::condition_variable notFull;
+    std::uint64_t *buffer = nullptr;
+    std::size_t capacity = 0;
+    std::size_t head = 0;  // index of the oldest message
+    std::size_t count = 0;
+
+    bool full() const { return count == capacity; }
+    void pushBack(std::uint64_t v) { buffer[(head + count) % capacity] = v; ++count; }
+    void pushFront(std::uint64_t v) { head = (head + capacity - 1) % capacity; buffer[head] = v; ++count; }
+    std::uint64_t popFront() { const std::uint64_t v = buffer[head]; head = (head + 1) % capacity; --count; return v; }
+};
+
+MessageQueueState *&QueueStateOf(MessageQueueType *q) {
+    static_assert(sizeof(MessageQueueState *) <= sizeof(MessageQueueType::storage),
+                  "MessageQueueType::storage is too small for a state pointer");
+    return *reinterpret_cast<MessageQueueState **>(q->storage);
+}
+MessageQueueState *QueueStateOf(const MessageQueueType *q) {
+    return *reinterpret_cast<MessageQueueState *const *>(q->storage);
+}
+
+// Shared body of Send/Jam (blocking or not).
+bool PutMessage(MessageQueueType *queue, std::uint64_t message, bool front, bool block) {
+    if (queue == nullptr) return false;
+    MessageQueueState *s = QueueStateOf(queue);
+    if (s == nullptr) return false;
+    {
+        std::unique_lock<std::mutex> lock(s->m);
+        if (s->full()) {
+            if (!block) return false;
+            s->notFull.wait(lock, [s] { return !s->full(); });
+        }
+        if (front) s->pushFront(message);
+        else s->pushBack(message);
+    }
+    s->notEmpty.notify_one();
+    return true;
+}
+
+// Shared body of Receive/Peek (blocking or not).
+bool TakeMessage(std::uint64_t *out, const MessageQueueType *queue, bool remove, bool block) {
+    if (queue == nullptr) return false;
+    MessageQueueState *s = QueueStateOf(queue);
+    if (s == nullptr) return false;
+    std::uint64_t value = 0;
+    {
+        std::unique_lock<std::mutex> lock(s->m);
+        if (s->count == 0) {
+            if (!block) return false;
+            s->notEmpty.wait(lock, [s] { return s->count != 0; });
+        }
+        value = remove ? s->popFront() : s->buffer[s->head];
+    }
+    if (remove) s->notFull.notify_one();
+    if (out != nullptr) *out = value;
+    return true;
+}
+} // namespace
+
 void InitializeMessageQueue(MessageQueueType *queue, std::uint64_t *buffer, std::size_t count) {
     if (queue == nullptr) return;
     std::memset(queue->storage, 0, sizeof(queue->storage));
-    if (buffer != nullptr) std::memset(buffer, 0, count * sizeof(std::uint64_t));
+    if (buffer == nullptr || count == 0) return;
+    auto *s = new MessageQueueState();
+    s->buffer = buffer;
+    s->capacity = count;
+    QueueStateOf(queue) = s;
 }
+
+void FinalizeMessageQueue(MessageQueueType *queue) {
+    if (queue == nullptr) return;
+    MessageQueueState *&s = QueueStateOf(queue);
+    delete s;
+    s = nullptr;
+}
+
+void SendMessageQueue(MessageQueueType *q, std::uint64_t m) { PutMessage(q, m, false, true); }
+bool TrySendMessageQueue(MessageQueueType *q, std::uint64_t m) { return PutMessage(q, m, false, false); }
+void JamMessageQueue(MessageQueueType *q, std::uint64_t m) { PutMessage(q, m, true, true); }
+bool TryJamMessageQueue(MessageQueueType *q, std::uint64_t m) { return PutMessage(q, m, true, false); }
+void ReceiveMessageQueue(std::uint64_t *o, MessageQueueType *q) { TakeMessage(o, q, true, true); }
+bool TryReceiveMessageQueue(std::uint64_t *o, MessageQueueType *q) { return TakeMessage(o, q, true, false); }
+void PeekMessageQueue(std::uint64_t *o, const MessageQueueType *q) { TakeMessage(o, q, false, true); }
+bool TryPeekMessageQueue(std::uint64_t *o, const MessageQueueType *q) { return TakeMessage(o, q, false, false); }
 
 // ---- CPU / threads ------------------------------------------------------
 
@@ -339,6 +425,58 @@ void GetCurrentStackInfo(std::uintptr_t *outBase, std::uintptr_t *outSize) {
     }
 #endif
 }
+
+// --- threads --------------------------------------------------------------------------------
+namespace {
+struct ThreadState {
+    ThreadFunction function = nullptr;
+    void *argument = nullptr;
+    std::thread host;
+};
+
+ThreadState *&ThreadStateOf(ThreadType *t) {
+    static_assert(sizeof(ThreadState *) <= sizeof(ThreadType::storage),
+                  "ThreadType::storage is too small for a state pointer");
+    return *reinterpret_cast<ThreadState **>(t->storage);
+}
+} // namespace
+
+int CreateThread(ThreadType *thread, ThreadFunction function, void *argument, void *stack,
+                 std::size_t stackSize, int priority) {
+    (void)stack;
+    (void)stackSize;
+    (void)priority;
+    if (thread == nullptr || function == nullptr) return -1;
+    std::memset(thread->storage, 0, sizeof(thread->storage));
+    auto *s = new ThreadState();
+    s->function = function;
+    s->argument = argument;
+    ThreadStateOf(thread) = s;
+    return 0;
+}
+
+void StartThread(ThreadType *thread) {
+    if (thread == nullptr) return;
+    ThreadState *s = ThreadStateOf(thread);
+    if (s == nullptr || s->host.joinable()) return;
+    s->host = std::thread(s->function, s->argument);
+}
+
+void WaitThread(ThreadType *thread) {
+    if (thread == nullptr) return;
+    ThreadState *s = ThreadStateOf(thread);
+    if (s != nullptr && s->host.joinable()) s->host.join();
+}
+
+void DestroyThread(ThreadType *thread) {
+    if (thread == nullptr) return;
+    WaitThread(thread);
+    ThreadState *&s = ThreadStateOf(thread);
+    delete s;
+    s = nullptr;
+}
+
+void YieldThread() { std::this_thread::yield(); }
 
 
 // --- nn::os system events -----------------------------------------------------------------
