@@ -49,6 +49,9 @@ public:
 protected:
     ListNode mDisposerListNode;    // +0x08 — node in the owning heap's disposer list
     Heap    *mDisposerHeap = nullptr; // +0x18 — back-pointer to the registering heap
+
+private:
+    friend class Heap; // appendDisposer_ / removeDisposer_ access mDisposerListNode directly
 };
 
 static_assert(sizeof(IDisposer) == 0x20,

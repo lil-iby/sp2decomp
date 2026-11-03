@@ -19,6 +19,7 @@
 #pragma once
 
 #include "sead/list_node.hpp"
+#include "sead/lock.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -26,6 +27,7 @@
 namespace sead {
 
 class Heap;
+class IDisposer;  // forward declaration — full type in sead/i_disposer.hpp
 class WriteStream;
 namespace hostio {
 class Context;
@@ -103,10 +105,28 @@ public:
 
     const char *name() const { return mName; }
 
+    // --- disposer-list management (0x7100e7b29c, 120B) ---------------------------
+    // Called by IDisposer's constructor to register `disposer` with this heap.
+    // When this heap is destroyed it walks mDisposerList and calls each ~IDisposer().
+    //
+    // appendDisposer_ call targets (ENGINE_REFERENCE.md §appendDisposer_):
+    //   lock   → mCS.lock()
+    //   insert → ListNode::insertFront_ (links disposer->mDisposerListNode into mDisposerList)
+    //   store  → disposer->mDisposerHeap = this  (back-pointer; counts as the 3rd named target)
+    //   unlock → mCS.unlock()
+    //   1 indirect: vtable slot on Heap (resize-notify or similar; left as no-op here)
+    void appendDisposer_(IDisposer *disposer);
+    // Symmetric remove, called by ~IDisposer() before self-destruction.
+    void removeDisposer_(IDisposer *disposer);
+
 protected:
     const char *mName = nullptr;
     std::uintptr_t mStartAddress = 0;
     std::size_t mSize = 0;
+
+    // Added to support disposer-list registration (appendDisposer_ / removeDisposer_).
+    CriticalSection mCS;          // thread safety for disposer list mutations
+    List            mDisposerList; // sentinel-head list of IDisposer nodes
 };
 
 // sead::ExpHeap — the concrete heap the game instantiates per system manager.

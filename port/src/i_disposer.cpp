@@ -11,17 +11,17 @@
 // The constructor stores the owning heap today; mDisposerListNode linkage follows once
 // those fields are added to sead::Heap.
 #include "sead/i_disposer.hpp"
+#include "sead/heap.hpp"
 #include "sead/heap_mgr.hpp"
-
-#include <cstdio>
 
 namespace sead {
 
 // 0x7100e764f0 — no-heap form (2 call targets: getCurrentHeap + appendDisposer_).
 IDisposer::IDisposer()
     : mDisposerListNode(), mDisposerHeap(nullptr) {
-    mDisposerHeap = HeapMgr::instance() ? HeapMgr::instance()->getCurrentHeap() : nullptr;
-    // appendDisposer_ deferred — see file header.
+    Heap *heap = HeapMgr::instance() ? HeapMgr::instance()->getCurrentHeap() : nullptr;
+    mDisposerHeap = heap;
+    if (heap != nullptr) heap->appendDisposer_(this);
 }
 
 // 0x7100e76550 — explicit heap form (3 call targets: getCurrentHeap + appendDisposer_ + 1 more).
@@ -33,15 +33,17 @@ IDisposer::IDisposer(Heap *heap, unsigned int heapNullOption)
         heap = HeapMgr::instance() ? HeapMgr::instance()->getCurrentHeap() : nullptr;
     }
     mDisposerHeap = heap;
-    // appendDisposer_ deferred — see file header.
+    if (heap != nullptr) heap->appendDisposer_(this);
 }
 
 // Virtual destructor: unlink from heap's disposer list if we were ever linked.
 IDisposer::~IDisposer() {
-    if (mDisposerListNode.isLinked()) {
+    if (mDisposerHeap != nullptr) {
+        mDisposerHeap->removeDisposer_(this);
+        mDisposerHeap = nullptr;
+    } else if (mDisposerListNode.isLinked()) {
         mDisposerListNode.erase_();
     }
-    mDisposerHeap = nullptr;
 }
 
 } // namespace sead

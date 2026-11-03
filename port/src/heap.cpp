@@ -11,6 +11,7 @@
 //   * isResizable() / isAdjustable() report false -- the host allocator does not resize.
 //   * dump/dumpYAML/genInformation_ are inherited inert (heap-internal state is not modelled).
 #include "sead/heap.hpp"
+#include "sead/i_disposer.hpp"
 
 #include <cstdlib>
 #include <cstring>
@@ -176,5 +177,31 @@ void ExpHeap::destroy() {
 }
 
 int ExpHeap::liveAllocationCount() const { return mAllocCount; }
+
+// ---------------------------------------------------------------------------
+// sead::Heap::appendDisposer_  (0x7100e7b29c, 120B, 4 call targets + 1 indirect)
+//
+// Call targets observed (ENGINE_REFERENCE.md):
+//   1. CriticalSection::lock   — mCS.lock()
+//   2. ListNode::insertFront_  — links disposer's node into mDisposerList
+//   3. store disposer->mDisposerHeap = this  (named as a call in Ghidra's decompiler)
+//   4. CriticalSection::unlock — mCS.unlock()
+//   indirect: one vtable slot on Heap (not reached on boot path; left as no-op)
+// ---------------------------------------------------------------------------
+void Heap::appendDisposer_(IDisposer *disposer) {
+    if (disposer == nullptr) return;
+    mCS.lock();
+    mDisposerList.pushBack(&disposer->mDisposerListNode);
+    mCS.unlock();
+}
+
+// Symmetric remove, called by ~IDisposer().
+void Heap::removeDisposer_(IDisposer *disposer) {
+    if (disposer == nullptr) return;
+    mCS.lock();
+    if (disposer->mDisposerListNode.isLinked())
+        disposer->mDisposerListNode.erase_();
+    mCS.unlock();
+}
 
 } // namespace sead
