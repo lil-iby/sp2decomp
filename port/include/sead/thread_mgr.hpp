@@ -1,14 +1,17 @@
 // sead::ThreadMgr / sead::GlobalRandom — the two dependencies of Framework::initialize.
 //
-// Both are minimal: the decompiled body calls ThreadMgr::createInstance(heap) and
-// ThreadMgr::initialize(instance, heap), then GlobalRandom::createInstance(rootHeap). What
-// those do internally is not observable from this call site, so this models the CALL
-// CONTRACT (an instance that can be created and initialised) rather than inventing thread
-// or RNG semantics that would be guesses.
+// ThreadMgr (ENGINE_REFERENCE.md):
+//   0x7100e99e68  ThreadMgr()        76B   — allocates the current-thread TLS slot
+//   0x7100e995d8  createInstance     136B
+//   0x7100e99eb4  initialize         4B    — a jump to initMainThread_
+//   0x7100e996b8  initMainThread_    184B, 9 calls: GetCurrentThread, ChangeThreadPriority,
+//                 GetThreadId, the MainThread allocation, SetTlsValue x2, GetCurrentCoreNumber
+// Behaviour from open-ead/sead (no license, written independently).
 //
-// That restraint is deliberate: the platform layer's nn::os provides real threading, and the
-// engine's ThreadMgr sits on top of it. Porting its internals needs its own decompiled body,
-// which is not part of the boot root's 13 dependencies.
+// Port differences: the instance is a static object, so instance() is never null (sead
+// allocates it from the heap); the core-number TLS slot (sead::CoreInfo) is not ported.
+//
+// GlobalRandom stays a call-contract model: its internals are not observable from here.
 #pragma once
 
 #include "sead/list_node.hpp"
@@ -24,23 +27,29 @@ class Thread;
 
 // sead::ThreadMgr — created and initialised with a heap during Framework::initialize.
 //
-// Also keeps the list of live sead::Threads and which one is running on the calling host
-// thread. The main-thread object (initMainThread_) is not ported yet, so getMainThread()
-// is always null.
+// Keeps the list of live sead::Threads, the MainThread object standing for the thread that
+// called initialize(), and which sead::Thread runs on each host thread (a TLS slot).
 class ThreadMgr {
 public:
+    ThreadMgr();
+
     static ThreadMgr *createInstance(Heap *heap);
     static ThreadMgr *instance();
 
-    // The reference's initialize takes the instance pointer and a heap.
+    // The reference's initialize takes the instance pointer and a heap. It creates the
+    // MainThread in `heap` for the calling thread (replacing any previous one).
     static void initialize(ThreadMgr *mgr, Heap *heap);
+    // Destroys the MainThread.
+    void destroy();
 
     Heap *heap() const { return mHeap; }
     bool isInitialized() const { return mInitialized; }
 
-    Thread *getMainThread() const { return nullptr; }
-    // The sead::Thread whose body is running on the calling host thread, or null.
+    Thread *getMainThread() const { return mMainThread; }
+    // The sead::Thread running on the calling host thread, or null.
     Thread *getCurrentThread() const;
+    bool isMainThread() const { return mMainThread != nullptr && getCurrentThread() == mMainThread; }
+    // Live non-main threads.
     std::size_t threadCount() const { return mList.size(); }
 
 private:
@@ -49,11 +58,17 @@ private:
     void addThread_(ListNode *node);
     void removeThread_(ListNode *node);
     static void setCurrentThread_(Thread *thread);
+    void initMainThread_(Heap *heap);
+    void destroyMainThread_();
 
     Heap *mHeap = nullptr;
     bool mInitialized = false;
     List mList;
     CriticalSection mListCS;
+    Thread *mMainThread = nullptr;
+    Heap *mMainThreadHeap = nullptr; // where mMainThread's memory came from
+    std::uint32_t mThreadPtrTLS = 0; // nn::os TLS slot holding the current sead::Thread*
+    bool mHasTLS = false;
 };
 
 // sead::GlobalRandom — the engine's shared RNG, created with the root heap.

@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <string>
 
 namespace {
 int g_failures = 0, g_checks = 0;
@@ -135,6 +136,50 @@ static void test_sleep() {
     Check(elapsedNs >= 9'000'000, "slept for at least ~10 ms");
 }
 
+// Must run last: it gives the test thread a MainThread, which the other tests assume absent.
+static void test_main_thread() {
+    std::printf("\n[7] ThreadMgr::initialize creates the MainThread\n");
+    sead::HeapMgr::initialize(1024 * 1024);
+    sead::Heap *root = sead::HeapMgr::getRootHeap(0);
+    sead::ExpHeap *heap = sead::ExpHeap::create(0, "sead::ThreadMgr", root);
+    sead::ThreadMgr *mgr = sead::ThreadMgr::instance();
+    const std::size_t listBefore = mgr->threadCount();
+    const int allocsBefore = heap->liveAllocationCount();
+
+    sead::ThreadMgr::initialize(mgr, heap);
+    sead::Thread *mainThread = mgr->getMainThread();
+    Check(mainThread != nullptr, "getMainThread() is set");
+    if (mainThread == nullptr) return;
+    Check(heap->liveAllocationCount() > allocsBefore, "the MainThread lives in the given heap");
+    Check(mgr->getCurrentThread() == mainThread, "the calling thread is now the main thread");
+    Check(mgr->isMainThread(), "isMainThread() on the calling thread");
+    Check(std::string(mainThread->getName()) == "sead::MainThread", "named sead::MainThread");
+    Check(mainThread->getState() == sead::Thread::State::cRunning, "already Running");
+    Check(mainThread->getBlockType() == BT::NonBlocking, "non-blocking message queue");
+    Check(mgr->threadCount() == listBefore, "not counted among created threads");
+
+    {
+        SumThread worker;
+        worker.start();
+        worker.sendMessage(1, BT::Blocking);
+        worker.quitAndWaitDoneSingleThread(false);
+        Check(worker.seenCurrent.load() == &worker, "a worker still sees itself, not the main thread");
+    }
+
+    mainThread->quit(false); // refused for the main thread
+    Check(mainThread->getState() == sead::Thread::State::cRunning, "quit() does not stop the main thread");
+
+    sead::ThreadMgr::initialize(mgr, heap); // re-initialising replaces it
+    Check(mgr->getMainThread() != nullptr, "re-initialise builds a new MainThread");
+
+    mgr->destroy();
+    Check(mgr->getMainThread() == nullptr, "destroy() removes the MainThread");
+    Check(mgr->getCurrentThread() == nullptr, "and clears the current-thread slot");
+    Check(heap->liveAllocationCount() == allocsBefore, "its memory is returned to the heap");
+
+    sead::HeapMgr::destroy();
+}
+
 int main() {
     std::printf("sead::Thread / MessageQueue tests\n");
     test_message_queue_basics();
@@ -143,6 +188,7 @@ int main() {
     test_quit_jam_skips_pending();
     test_send_rejections();
     test_sleep();
+    test_main_thread();
     std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

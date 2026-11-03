@@ -18,20 +18,35 @@ Thread::Thread(const char *name, Heap *heap, int priority, MessageQueue::BlockTy
     ThreadMgr::instance()->addThread_(&mListNode);
 }
 
+Thread::Thread(Heap *heap, nn::os::ThreadType *inner, std::uint64_t id)
+    : mName("sead::MainThread"), mStackSize(0),
+      mBlockType(MessageQueue::BlockType::NonBlocking), mQuitMsg(0x7FFFFFFF), mId(id),
+      mState(State::cRunning), mThreadInner(inner),
+      mPriority(nn::os::GetThreadPriority(inner)) {
+    mMessageQueue.allocate(32, heap);
+    std::uintptr_t stackBase = 0, stackSize = 0;
+    nn::os::GetCurrentStackInfo(&stackBase, &stackSize);
+    mStackSize = static_cast<int>(stackSize);
+    setAffinity(mAffinity);
+}
+
 Thread::~Thread() {
-    ThreadMgr::instance()->removeThread_(&mListNode);
+    // The main thread was adopted, not created: nothing to stop, join or destroy.
+    if (ThreadMgr::instance()->getMainThread() != this) {
+        ThreadMgr::instance()->removeThread_(&mListNode);
 
-    const State s = mState.load();
-    if (s == State::cRunning) {
-        std::printf("sead::Thread[%s]: destroyed while running; quitting first\n", mName);
-        quitAndWaitDoneSingleThread(false);
-    } else if (s == State::cQuitting || s == State::cTerminated) {
-        waitDone();
+        const State s = mState.load();
+        if (s == State::cRunning) {
+            std::printf("sead::Thread[%s]: destroyed while running; quitting first\n", mName);
+            quitAndWaitDoneSingleThread(false);
+        } else if (s == State::cQuitting || s == State::cTerminated) {
+            waitDone();
+        }
+
+        nn::os::DestroyThread(mThreadInner);
+        delete mThreadInner;
+        mThreadInner = nullptr;
     }
-
-    nn::os::DestroyThread(mThreadInner);
-    delete mThreadInner;
-    mThreadInner = nullptr;
     mMessageQueue.free();
 }
 

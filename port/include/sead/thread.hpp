@@ -80,6 +80,10 @@ public:
     static void sleep(TickSpan howLong);
 
 protected:
+    // Main-thread form: adopts an already running thread (`inner`, null = the calling
+    // thread) instead of creating one, and is not added to ThreadMgr's list.
+    Thread(Heap *heap, nn::os::ThreadType *inner, std::uint64_t id);
+
     virtual void run_();
     virtual void calc_(MessageQueue::Element msg) = 0;
 
@@ -98,6 +102,22 @@ private:
     std::uint64_t mAffinity = 1; // CoreId::cMain
     nn::os::ThreadType *mThreadInner = nullptr;
     int mPriority;
+};
+
+// The thread that called ThreadMgr::initialize. It already runs, so the lifecycle calls
+// that would start, stop or join it are refused (sead asserts; the port ignores them).
+class MainThread : public Thread {
+public:
+    MainThread(Heap *heap, nn::os::ThreadType *inner, std::uint64_t id) : Thread(heap, inner, id) {}
+
+    void destroy() override {}
+    void quit(bool) override {}
+    void waitDone() override {}
+    void quitAndDestroySingleThread(bool) override {}
+    void setPriority(int) override {}
+
+protected:
+    void calc_(MessageQueue::Element) override {}
 };
 
 } // namespace sead

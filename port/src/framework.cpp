@@ -62,8 +62,11 @@ void Framework::initialize(const InitializeArg &arg) {
     ThreadMgr *mgr = ThreadMgr::createInstance(th);
     ThreadMgr::initialize(mgr, th);
 
-    //   (**(code **)(*(long *)pHVar1 + 0x28))(pHVar1);   -- vptr+0x28, Heap::destroy
-    th->destroy();
+    //   (**(code **)(*(long *)pHVar1 + 0x28))(pHVar1);   -- vptr+0x28, Heap::adjust
+    // Slot +0x28 is adjust (destroy is +0x20, see heap.hpp), and open-ead/sead agrees:
+    // the size-0 heap is shrunk to what ThreadMgr used. Calling destroy here freed the
+    // MainThread that initialize had just allocated in this heap.
+    th->adjust();
 
     //   GlobalRandom::createInstance(pHVar2);
     GlobalRandom::createInstance(root);
