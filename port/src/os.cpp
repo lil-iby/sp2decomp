@@ -322,6 +322,23 @@ void ReleaseSemaphore(SemaphoreType *semaphore) {
     s->state->cv.notify_one();
 }
 
+bool TryAcquireSemaphore(SemaphoreType *semaphore) {
+    if (semaphore == nullptr) return false;
+    auto *s = AsSemaphore(semaphore);
+    if (s->state == nullptr) return false;
+    std::lock_guard<std::mutex> g(s->state->lock);
+    if (s->state->count <= 0) return false;
+    --s->state->count;
+    return true;
+}
+
+void FinalizeSemaphore(SemaphoreType *semaphore) {
+    if (semaphore == nullptr) return;
+    auto *s = AsSemaphore(semaphore);
+    delete s->state;
+    s->state = nullptr;
+}
+
 // --- message queues -------------------------------------------------------------------------
 // A ring buffer over the caller's storage. Host sync state lives behind a pointer in
 // MessageQueueType::storage, like the other primitives here.

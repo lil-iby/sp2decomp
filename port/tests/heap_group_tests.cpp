@@ -51,10 +51,10 @@ int main() {
     hg->criticalSection().unlock();
     Check(true, "the CriticalSection locks and unlocks");
 
-    hg->readWriteLock().lockWrite();
-    hg->readWriteLock().unlockWrite();
-    hg->readWriteLock().lockRead();
-    hg->readWriteLock().unlockRead();
+    hg->readWriteLock().writeLock();
+    hg->readWriteLock().writeUnlock();
+    hg->readWriteLock().readLock();
+    hg->readWriteLock().readUnlock();
     Check(true, "the ReadWriteLock takes both read and write");
 
     std::printf("\nHeapGroup::createHeap (0x71011f5130)\n");

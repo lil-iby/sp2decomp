@@ -1,23 +1,8 @@
-// sead::CriticalSection / ReadWriteLock over host synchronisation primitives.
+// sead::CriticalSection / sead::ReadWriteLock — see port/include/sead/lock.hpp.
 #include "sead/lock.hpp"
-
-#include <mutex>
-#include <new>
-#include <shared_mutex>
+#include "sead/thread_mgr.hpp"
 
 namespace sead {
-
-namespace {
-// The host mutex types are heap-allocated; storage holds only the pointer. This removes
-// any constraint on sizeof(std::recursive_mutex) / sizeof(std::shared_mutex) — those sizes
-// vary by platform (MSVC x64: ~80 bytes; GCC x64: ~40 bytes) and would require awkward
-// #if guards if embedded directly. A pointer is always 8 bytes, well within the reserves.
-template <typename T, std::size_t N>
-T **AsPtr(unsigned char (&storage)[N]) {
-    static_assert(sizeof(T *) <= N, "storage in sead/lock.hpp is too small for a pointer");
-    return reinterpret_cast<T **>(storage);
-}
-} // namespace
 
 CriticalSection::CriticalSection() : IDisposer() {
     nn::os::InitializeMutex(&mCriticalSectionInner, true, 0);
@@ -39,21 +24,51 @@ void CriticalSection::lock() { nn::os::LockMutex(&mCriticalSectionInner); }
 void CriticalSection::unlock() { nn::os::UnlockMutex(&mCriticalSectionInner); }
 bool CriticalSection::tryLock() { return nn::os::TryLockMutex(&mCriticalSectionInner); }
 
-ReadWriteLock::ReadWriteLock() {
-    *AsPtr<std::shared_mutex>(mStorage) = new std::shared_mutex();
-    mInitialised = true;
+// --- ReadWriteLock --------------------------------------------------------------------------
+// fetch_add/fetch_sub return the previous count, which is what each test below reads.
+// The semaphores are released by whichever thread drops the count, not necessarily the one
+// that took it (the last reader out releases the write lock the first reader took), which
+// is why these are semaphores rather than mutexes.
+
+void ReadWriteLock::SemaphoreLock::lock() {
+    if (mLockCount.fetch_add(1) != 0) mSemaphore.lock();
 }
 
-ReadWriteLock::~ReadWriteLock() {
-    if (mInitialised) {
-        delete *AsPtr<std::shared_mutex>(mStorage);
-        mInitialised = false;
+void ReadWriteLock::SemaphoreLock::unlock() {
+    if (mLockCount.fetch_sub(1) != 1) mSemaphore.unlock();
+}
+
+void ReadWriteLock::readLock() {
+    mReadLock.lock();
+    if (mNumReaders.fetch_add(1) == 0) mWriteLock.lock(); // first reader shuts writers out
+    mReadLock.unlock();
+}
+
+void ReadWriteLock::readUnlock() {
+    if (mNumReaders.fetch_sub(1) == 1) mWriteLock.unlock(); // last reader lets them in
+}
+
+void ReadWriteLock::writeLock() {
+    Thread *current = ThreadMgr::instance()->getCurrentThread();
+    if (mWriterThread != current) {
+        if (mNumWriters.fetch_add(1) == 0) mReadLock.lock(); // stop new readers
+        mWriteLock.lock();
+        mWriterThread = current;
+    }
+    ++mWritingThreadCount;
+}
+
+void ReadWriteLock::writeUnlock() {
+    Thread *current = ThreadMgr::instance()->getCurrentThread();
+    // sead asserts in both cases: not the owner, or no sead::Thread / nothing held.
+    if (mWriterThread != current) return;
+    if (current == nullptr || mWritingThreadCount == 0) return;
+
+    if (--mWritingThreadCount == 0) {
+        mWriterThread = nullptr;
+        mWriteLock.unlock();
+        if (mNumWriters.fetch_sub(1) == 1) mReadLock.unlock();
     }
 }
-
-void ReadWriteLock::lockRead() { (*AsPtr<std::shared_mutex>(mStorage))->lock_shared(); }
-void ReadWriteLock::lockWrite() { (*AsPtr<std::shared_mutex>(mStorage))->lock(); }
-void ReadWriteLock::unlockRead() { (*AsPtr<std::shared_mutex>(mStorage))->unlock_shared(); }
-void ReadWriteLock::unlockWrite() { (*AsPtr<std::shared_mutex>(mStorage))->unlock(); }
 
 } // namespace sead

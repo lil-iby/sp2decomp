@@ -49,6 +49,7 @@ add_library(nnos STATIC
   src/event.cpp
   src/message_queue.cpp
   src/thread.cpp
+  src/semaphore.cpp
 )
 target_include_directories(nnos PUBLIC include)
 find_package(Threads REQUIRED)
@@ -210,5 +211,10 @@ if(SP2PORT_BUILD_TESTS)
   add_executable(thread_tests tests/thread_tests.cpp)
   target_link_libraries(thread_tests PRIVATE nnos)
   add_test(NAME thread COMMAND thread_tests)
+
+  # sead::Semaphore + sead::ReadWriteLock (0x7100e998a8) and the lock layouts.
+  add_executable(lock_tests tests/lock_tests.cpp)
+  target_link_libraries(lock_tests PRIVATE nnos)
+  add_test(NAME lock COMMAND lock_tests)
 
 endif()

@@ -34,13 +34,11 @@ struct MutexType {
 };
 
 struct SemaphoreType {
-    // UNBOUNDED by the evidence: four call sites consistently use `this + 0x20`, which
-    // confirms a stable field offset but reveals no following sibling field.
-    // The host needs 96 bytes for {mutex, condition_variable, two ints}, so this is sized
-    // to the HOST requirement, not to a measured SDK size. Safe here for the same reason
-    // as MutexType: every observed site allocates a single field, never an array element
-    // whose stride the SDK would have to know.
-    alignas(16) unsigned char storage[0x60];
+    // 0x28. Four call sites use `this + 0x20`: the field right after sead::Semaphore's
+    // 0x20-byte IDisposer base. Lp::Sys::HeapGroup reserves 0xB8 for its ReadWriteLock,
+    // which holds two Semaphores, and that total only works out with Semaphore = 0x48 =
+    // 0x20 + 0x28. The host state lives behind a pointer (see os.cpp), so 0x28 is ample.
+    alignas(8) unsigned char storage[0x28];
 };
 
 struct ThreadType {
@@ -168,6 +166,8 @@ void FinalizeMutex(MutexType *mutex);
 void InitializeSemaphore(SemaphoreType *semaphore, int initial, int max);
 void AcquireSemaphore(SemaphoreType *semaphore);
 void ReleaseSemaphore(SemaphoreType *semaphore);
+bool TryAcquireSemaphore(SemaphoreType *semaphore);
+void FinalizeSemaphore(SemaphoreType *semaphore);
 
 // `InitializeMessageQueue((MessageQueueType *)(this + 0x1f8), (ulong *)(this + 0x240), 0x20);`
 // A bounded FIFO of 64-bit values held in the caller's buffer. Send blocks while full,
