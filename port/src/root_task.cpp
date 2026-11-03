@@ -6,8 +6,7 @@
 //   waitDoneParallelInitThread → spin with sleepCurThreadMilliSec until isDone()
 //   parallelInitThreadFunc    → the task body (subsystem dispatch stub for now)
 //
-// The real binary uses nn::os::CreateThread directly; here WorkerThreadMgr
-// already wraps std::thread, so RootTask sits cleanly on top of it.
+// WorkerThreadMgr runs its batches on a sead::DelegateThread, as in the binary.
 #include "lp/root_task.hpp"
 #include "lp/sys_init.hpp"
 #include "lp/utl.hpp"

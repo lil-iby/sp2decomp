@@ -1,92 +1,85 @@
-// Lp::Sys::WorkerThreadMgr — backed by std::thread + std::queue.
+// Lp::Sys::WorkerThreadMgr — over sead::DelegateThread, as in the binary.
 //
-// Semantics modelled from BOOT_CALLGRAPH.md:
-//   createWorker → launch idle background thread (waits for run())
-//   enqueue      → push task onto queue
-//   run          → signal "go", optionally block until queue is drained
-//
-// The real binary uses nn::os::CreateThread + nn::os::MessageQueue;
-// we inline those semantics here because nn::os::CreateThread has not
-// yet been declared in os.hpp.
+// The boot closure shows the chain createWorker (0x710123d4a0) -> internal createWorker
+// (0x710123d588, 536B) -> Lp::Sys::WorkerThread ctor (0x710123c920) -> sead::DelegateThread
+// (0x7100e99804) -> sead::Thread. The worker thread's body is the delegate below:
+//   enqueue  — adds the task to the pending batch
+//   run      — sends the "run" message; the worker drains the batch, then signals done
+// Lp::Sys::WorkerThread itself is game code with no public reference, so its exact fields
+// are not reproduced; this keeps the observed behaviour on the real sead primitives.
 #include "lp/worker_thread_mgr.hpp"
 
-#include <condition_variable>
+#include "sead/delegate_thread.hpp"
+#include "sead/event.hpp"
+
+#include <atomic>
 #include <cstdio>
 #include <mutex>
 #include <queue>
-#include <thread>
 
 namespace Lp::Sys {
 
-// ---------------------------------------------------------------------------
-// Internal state
-// ---------------------------------------------------------------------------
+namespace {
+using Element = sead::MessageQueue::Element;
+constexpr Element kRunMsg = 1;
+constexpr Element kQuitMsg = 0x7FFFFFFF;
+} // namespace
+
 struct WorkerThreadMgr::Impl {
     struct QueuedTask {
         WorkerTask::Fn fn;
-        void          *arg;
+        void *arg;
     };
 
-    std::thread             worker;
-    std::queue<QueuedTask>  taskQueue;
-    std::mutex              mx;
-    std::condition_variable readyToRun;  // worker waits here until run() fires
-    std::condition_variable batchDone;   // run(blocking=true) waits here
+    // Runs on the worker thread for every message it receives.
+    void onMessage(sead::Thread *thread, Element msg) {
+        (void)thread;
+        if (msg != kRunMsg) return;
+        int ran = 0;
+        while (true) {
+            QueuedTask task{};
+            {
+                std::lock_guard<std::mutex> lock(mx);
+                if (taskQueue.empty()) break;
+                task = taskQueue.front();
+                taskQueue.pop();
+            }
+            task.fn(task.arg);
+            ++ran;
+        }
+        completed = ran;
+        done = true;
+        batchDone.setSignal();
+    }
 
-    bool goFlag  = false; // set by run(), cleared by worker after draining queue
-    bool exitFlag = false; // set by destructor
-    int  completed = 0;  // tasks finished in the last batch
-    bool done = false;   // true once the last batch finished
+    sead::Delegate2<Impl, sead::Thread *, Element> delegate{this, &Impl::onMessage};
+    sead::DelegateThread *thread = nullptr;
+
+    std::mutex mx;
+    std::queue<QueuedTask> taskQueue;
+    std::atomic<bool> done{false};
+    std::atomic<int> completed{0};
+    sead::Event batchDone{true}; // manual reset: cleared by run(), set when a batch ends
 };
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-WorkerThreadMgr::WorkerThreadMgr() : m_impl(new Impl{}) {}
+WorkerThreadMgr::WorkerThreadMgr() : m_impl(new Impl()) {}
 
 WorkerThreadMgr::~WorkerThreadMgr() {
-    {
-        std::lock_guard<std::mutex> lock(m_impl->mx);
-        m_impl->exitFlag = true;
-        m_impl->goFlag = true; // wake thread so it can see exitFlag
+    if (m_impl->thread != nullptr) {
+        m_impl->thread->quitAndWaitDoneSingleThread(false);
+        delete m_impl->thread;
     }
-    m_impl->readyToRun.notify_all();
-    if (m_impl->worker.joinable()) m_impl->worker.join();
     delete m_impl;
 }
 
 void WorkerThreadMgr::createWorker(void * /*sys*/, std::uint64_t /*config*/) {
-    if (m_impl->worker.joinable()) return; // idempotent
-
-    // Inline the worker loop as a lambda so it is a member-function context —
-    // this avoids the private-Impl access issue that a free `workerLoop` function
-    // would hit when naming WorkerThreadMgr::Impl from outside the class.
-    Impl *impl = m_impl;
-    m_impl->worker = std::thread([impl] {
-        std::unique_lock<std::mutex> lock(impl->mx);
-        while (!impl->exitFlag) {
-            impl->readyToRun.wait(lock, [impl] {
-                return impl->goFlag || impl->exitFlag;
-            });
-            if (impl->exitFlag) break;
-
-            impl->done = false;
-            impl->completed = 0;
-            while (!impl->taskQueue.empty()) {
-                auto task = impl->taskQueue.front();
-                impl->taskQueue.pop();
-                lock.unlock();
-                task.fn(task.arg);
-                lock.lock();
-                ++impl->completed;
-            }
-            impl->goFlag = false;
-            impl->done = true;
-            impl->batchDone.notify_all();
-        }
-    });
-    std::printf("Lp::Sys::WorkerThreadMgr::createWorker: launched background thread\n");
+    if (m_impl->thread != nullptr) return; // idempotent
+    m_impl->thread = new sead::DelegateThread(
+        "Lp::Sys::WorkerThread", &m_impl->delegate, /*heap=*/nullptr,
+        sead::Thread::cDefaultPriority, sead::MessageQueue::BlockType::Blocking, kQuitMsg,
+        /*stackSize=*/0x8000, /*messageQueueSize=*/8);
+    m_impl->thread->start();
+    std::printf("Lp::Sys::WorkerThreadMgr::createWorker: started sead::DelegateThread\n");
 }
 
 void WorkerThreadMgr::enqueue(WorkerTask *task, std::int64_t arg2, std::uint32_t /*flags*/) {
@@ -95,34 +88,21 @@ void WorkerThreadMgr::enqueue(WorkerTask *task, std::int64_t arg2, std::uint32_t
     void *arg = (arg2 != 0) ? reinterpret_cast<void *>(arg2) : task->arg;
     std::lock_guard<std::mutex> lock(m_impl->mx);
     m_impl->taskQueue.push({task->fn, arg});
-    std::printf("Lp::Sys::WorkerThreadMgr::enqueue: queued task fn=%p arg=%p\n",
-                reinterpret_cast<void *>(task->fn), arg);
 }
 
 void WorkerThreadMgr::run(std::int64_t /*workerIdx*/, bool blocking) {
-    {
-        std::lock_guard<std::mutex> lock(m_impl->mx);
-        m_impl->done = false;
-        m_impl->goFlag = true;
+    if (m_impl->thread == nullptr) {
+        std::printf("Lp::Sys::WorkerThreadMgr::run: no worker (createWorker not called)\n");
+        return;
     }
-    m_impl->readyToRun.notify_all();
-
-    if (blocking) {
-        std::unique_lock<std::mutex> lock(m_impl->mx);
-        m_impl->batchDone.wait(lock, [this] { return m_impl->done; });
-    }
-    std::printf("Lp::Sys::WorkerThreadMgr::run: %s\n",
-                blocking ? "waited for batch" : "fired async");
+    m_impl->done = false;
+    m_impl->batchDone.resetSignal();
+    m_impl->thread->sendMessage(kRunMsg, sead::MessageQueue::BlockType::Blocking);
+    if (blocking) m_impl->batchDone.wait();
 }
 
-bool WorkerThreadMgr::isDone() const {
-    std::lock_guard<std::mutex> lock(m_impl->mx);
-    return m_impl->done;
-}
+bool WorkerThreadMgr::isDone() const { return m_impl->done.load(); }
 
-int WorkerThreadMgr::tasksCompleted() const {
-    std::lock_guard<std::mutex> lock(m_impl->mx);
-    return m_impl->completed;
-}
+int WorkerThreadMgr::tasksCompleted() const { return m_impl->completed.load(); }
 
 } // namespace Lp::Sys

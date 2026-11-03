@@ -5,6 +5,8 @@
 //
 // Each test is independent and creates a fresh WorkerThreadMgr.
 #include "lp/worker_thread_mgr.hpp"
+#include "sead/thread.hpp"
+#include "sead/thread_mgr.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -147,6 +149,44 @@ static void test_not_done_before_run() {
 }
 
 // ---------------------------------------------------------------------------
+// Test 6 — the worker is a sead::Thread registered with sead::ThreadMgr
+// ---------------------------------------------------------------------------
+static void test_worker_is_sead_thread() {
+    std::printf("\n[6] tasks run inside a sead::Thread\n");
+
+    const std::size_t before = sead::ThreadMgr::instance()->threadCount();
+    std::atomic<sead::Thread *> seen{nullptr};
+    {
+        Lp::Sys::WorkerThreadMgr mgr;
+        mgr.createWorker(nullptr, 0);
+        Check(sead::ThreadMgr::instance()->threadCount() == before + 1,
+              "createWorker registers one sead::Thread");
+
+        Lp::Sys::WorkerTask task{
+            [](void *arg) {
+                static_cast<std::atomic<sead::Thread *> *>(arg)->store(
+                    sead::ThreadMgr::instance()->getCurrentThread());
+            },
+            &seen};
+        mgr.enqueue(&task, 0, 0);
+        mgr.run(0, true);
+        Check(seen.load() != nullptr, "getCurrentThread() inside the task is the worker");
+    }
+    Check(sead::ThreadMgr::instance()->threadCount() == before,
+          "destroying the manager quits and unregisters the worker");
+}
+
+// ---------------------------------------------------------------------------
+// Test 7 — run() without a worker returns instead of hanging
+// ---------------------------------------------------------------------------
+static void test_run_without_worker() {
+    std::printf("\n[7] run(blocking) without createWorker\n");
+    Lp::Sys::WorkerThreadMgr mgr;
+    mgr.run(0, true);
+    Check(!mgr.isDone(), "returned, and no batch is reported done");
+}
+
+// ---------------------------------------------------------------------------
 int main() {
     std::printf("Lp::Sys::WorkerThreadMgr tests\n");
     std::printf("(3-function dispatch: createWorker / enqueue / run)\n");
@@ -156,6 +196,8 @@ int main() {
     test_sequential_batches();
     test_runs_on_worker_thread();
     test_not_done_before_run();
+    test_worker_is_sead_thread();
+    test_run_without_worker();
 
     std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

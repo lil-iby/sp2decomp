@@ -16,9 +16,8 @@
 //   +0x00  void (*fn)(void*)   — function pointer, invoked with arg
 //   +0x08  void *arg           — opaque argument passed to fn
 //
-// Implementation: backed by std::thread + std::queue + condvar.
-// The real binary uses nn::os::CreateThread + nn::os::MessageQueue; the
-// semantics are identical and nn::os::CreateThread is not yet declared.
+// Implementation: one sead::DelegateThread (sead::Thread -> nn::os::CreateThread) whose
+// message loop runs each batch, plus a sead::Event that run(blocking) waits on.
 #include <cstdint>
 
 namespace Lp::Sys {
